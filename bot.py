@@ -1,12 +1,25 @@
 import discord
+import json
 
 from random import randint
 
-spam_bool = False
+from pymorphy2 import MorphAnalyzer
+from re import sub
+from transliterate import translit
 
+morph = MorphAnalyzer()
+
+moderation_flag = False
 on_member_join_text = 'Привет {member}, добро пожаловать на сервер "{server}"!'
 on_member_remove_text = 'Пользователь {member} покинул сервер "{server}"'
 call_to_server_text = 'Пользователь {user} зовет Вас на сервер "{server}"!'
+
+spam_flag = False
+ban_words = []
+with open('ban_words.json', encoding='ascii') as words:
+    ban_list = json.load(words)
+    for w in ban_list:
+        ban_words.append(w['word'])
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -47,12 +60,115 @@ async def on_member_remove(member):
     print('Removed user:', member.id)
 
 
+@client.event
+async def on_message(message):
+    if moderation_flag:
+        def simplify_word(word):
+            last_letter = ''
+            result = ''
+            for letter in word:
+                if letter != last_letter:
+                    last_letter = letter
+                    result += letter
+            return result
+
+        msg_words = [simplify_word(word) for word in translit(sub('[^A-Za-zА-Яа-я0-9ё]+', ' ',
+                                                                  message.content), 'ru').split()]
+        for word in msg_words:
+            if word in ban_words:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                print('deleted', message.guild.id, message.author.id)
+                return
+            for form in morph.normal_forms(word):
+                if form in ban_words:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                    print('deleted', message.guild.id, message.author.id)
+                    return
+            if 'ё' in word:
+                for form in morph.normal_forms(word.replace('ё', 'е')):
+                    if form in ban_words:
+                        try:
+                            await message.delete()
+                        except Exception:
+                            pass
+                        await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                        print('deleted', message.guild.id, message.author.id)
+                        return
+
+
+@client.event
+async def on_raw_message_edit(payload):
+    message = await client.get_channel(payload.channel_id).fetch_message(payload.message_id)
+    if moderation_flag:
+        def simplify_word(word):
+            last_letter = ''
+            result = ''
+            for letter in word:
+                if letter != last_letter:
+                    last_letter = letter
+                    result += letter
+            return result
+
+        msg_words = [simplify_word(word) for word in translit(sub('[^A-Za-zА-Яа-я0-9ё]+', ' ',
+                                                                  message.content), 'ru').split()]
+        for word in msg_words:
+            if word in ban_words:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                print('deleted_', message.guild.id, message.author.id)
+                return
+            for form in morph.normal_forms(word):
+                if form in ban_words:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                    print('deleted_', message.guild.id, message.author.id)
+                    return
+            if 'ё' in word:
+                for form in morph.normal_forms(word.replace('ё', 'е')):
+                    if form in ban_words:
+                        try:
+                            await message.delete()
+                        except Exception:
+                            pass
+                        await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                        print('deleted_', message.guild.id, message.author.id)
+                        return
+
+
+@tree.command(name='moderation', description='включить/отключить удаление нежелательных сообщений')
+async def moderation(interaction, value: bool):
+    try:
+        if interaction.user.guild_permissions.administrator:
+            global moderation_flag
+            moderation_flag = value
+            await interaction.response.send_message(f'Модерация {"включена" if value else "отключена"}')
+            print('moderation', value, interaction.guild_id, interaction.user.id)
+        else:
+            await interaction.response.send_message('Необходимо обладать правами администратора')
+    except AttributeError:
+        await interaction.response.send_message('Вы не на сервере!')
+
+
 @tree.command(name='random', description='Вывести случайное число (по умолчанию от 0 до 100)')
 async def random(interaction, minimal: int = 0, maximal: int = 100):
     if minimal <= maximal:
         await interaction.response.send_message(randint(minimal, maximal))
     else:
-        await interaction.response.send_message('Ошибка: число minimal больше числа maximal')
+        await interaction.response.send_message('Ошибка: число *minimal* больше числа *maximal*')
     try:
         print('random', interaction.guild_id, interaction.user.id)
     except AttributeError:
@@ -62,11 +178,11 @@ async def random(interaction, minimal: int = 0, maximal: int = 100):
 @tree.command(name='generate_spam', description='Начать спам')
 async def generate_spam(interaction, count: int = 1, text: str = 'spam'):
     count = 100 if count > 100 else count
-    global spam_bool
-    spam_bool = True
+    global spam_flag
+    spam_flag = True
     await interaction.response.send_message('start spamming')
     for i in range(count):
-        if spam_bool:
+        if spam_flag:
             await interaction.channel.send(text)
         else:
             break
@@ -75,13 +191,13 @@ async def generate_spam(interaction, count: int = 1, text: str = 'spam'):
 
 @tree.command(name='stop_spam', description='Остановить спам')
 async def stop_spam(interaction):
-    global spam_bool
-    spam_bool = False
+    global spam_flag
+    spam_flag = False
     await interaction.response.send_message('Stop spamming')
     print('stop_spam', interaction.guild_id, interaction.user.id)
 
 
-@tree.command(name='call_to_server', description='Позвать людей')
+@tree.command(name='call_to_server', description='Позвать пользователя')
 async def call_to_server(interaction, member: discord.User):
     await interaction.response.send_message(f'Вызов {member.mention}')
     if member.id == client.user.id:
