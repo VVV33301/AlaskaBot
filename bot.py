@@ -1,18 +1,20 @@
 import discord
 import json
-
-from random import randint
-
+# import sqlalchemy
+# from sqlalchemy.ext.asyncio import create_async_engine
 from pymorphy2 import MorphAnalyzer
 from re import sub
 from transliterate import translit
+from random import randint
 
 morph = MorphAnalyzer()
+# sql_engine = create_async_engine('sqlite:///guilds_settings.db', echo=True)
 
-moderation_flag = False
+moderation_flag = True
+on_bad_word_write_text = 'Пользователь {member} написал запрещенное слово'
 on_member_join_text = 'Привет {member}, добро пожаловать на сервер "{server}"!'
 on_member_remove_text = 'Пользователь {member} покинул сервер "{server}"'
-call_to_server_text = 'Пользователь {user} зовет Вас на сервер "{server}"!'
+call_to_server_text = 'Пользователь {member} зовет Вас на сервер "{server}"!'
 
 spam_flag = False
 ban_words = []
@@ -70,9 +72,9 @@ async def on_message(message):
                 if letter != last_letter:
                     last_letter = letter
                     result += letter
-            return result
+            return result.lower()
 
-        msg_words = [simplify_word(word) for word in translit(sub('[^A-Za-zА-Яа-я0-9ё]+', ' ',
+        msg_words = [simplify_word(word) for word in translit(sub('[^A-Za-zА-Яа-я0-9ёЁ]+', ' ',
                                                                   message.content), 'ru').split()]
         for word in msg_words:
             if word in ban_words:
@@ -80,7 +82,7 @@ async def on_message(message):
                     await message.delete()
                 except Exception:
                     pass
-                await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                await message.channel.send(on_bad_word_write_text.format(member=message.author.mention))
                 print('deleted', message.guild.id, message.author.id)
                 return
             for form in morph.normal_forms(word):
@@ -89,7 +91,7 @@ async def on_message(message):
                         await message.delete()
                     except Exception:
                         pass
-                    await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                    await message.channel.send(on_bad_word_write_text.format(member=message.author.mention))
                     print('deleted', message.guild.id, message.author.id)
                     return
             if 'ё' in word:
@@ -99,7 +101,7 @@ async def on_message(message):
                             await message.delete()
                         except Exception:
                             pass
-                        await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                        await message.channel.send(on_bad_word_write_text.format(member=message.author.mention))
                         print('deleted', message.guild.id, message.author.id)
                         return
 
@@ -125,7 +127,7 @@ async def on_raw_message_edit(payload):
                     await message.delete()
                 except Exception:
                     pass
-                await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                await message.channel.send(on_bad_word_write_text.format(member=message.author.mention))
                 print('deleted_', message.guild.id, message.author.id)
                 return
             for form in morph.normal_forms(word):
@@ -134,7 +136,7 @@ async def on_raw_message_edit(payload):
                         await message.delete()
                     except Exception:
                         pass
-                    await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                    await message.channel.send(on_bad_word_write_text.format(member=message.author.mention))
                     print('deleted_', message.guild.id, message.author.id)
                     return
             if 'ё' in word:
@@ -144,7 +146,7 @@ async def on_raw_message_edit(payload):
                             await message.delete()
                         except Exception:
                             pass
-                        await message.channel.send(f'{message.author.mention} написал запрещенное слово')
+                        await message.channel.send(on_bad_word_write_text.format(member=message.author.mention))
                         print('deleted_', message.guild.id, message.author.id)
                         return
 
@@ -205,7 +207,7 @@ async def call_to_server(interaction, member: discord.User):
     elif member.id == interaction.user.id:
         await member.send('Зачем кому-то приглашать самого себя?')
     else:
-        await member.send(call_to_server_text.format(user=interaction.user, server=interaction.guild))
+        await member.send(call_to_server_text.format(member=interaction.user, server=interaction.guild))
     print('call_to_server', interaction.guild_id, interaction.user.id, member.id)
 
 
