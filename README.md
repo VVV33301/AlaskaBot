@@ -1,2 +1,3 @@
 # AlaskaBot
-This is a Discord bot written in `Python` using the `discord.py` library.
+Это Discord бот написанный на языке `Python` при помощи библиотеки `discord.py`.
+Используемые библиотеки: discord, asyncio, sqlalchemy, youtube_dl, pymorphy2, transliterate, json, re, random, os; а также используется программное обеспечение ffmpeg.
