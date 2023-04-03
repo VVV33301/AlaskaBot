@@ -21,19 +21,19 @@ morph = MorphAnalyzer()
 translator = Translator()
 
 
-def find_ffmpeg():
+def find_ffmpeg() -> path.join:
     for dirpath, dirname, filename in walk('/'):
         if 'ffmpeg.exe' in filename:
             return path.join(dirpath, 'ffmpeg.exe')
 
 
-def delete_yt():
+def delete_yt() -> None:
     for file in listdir(getcwd()):
         if file.startswith('youtube'):
             remove(file)
 
 
-def simplify_word(word):
+def simplify_word(word: str) -> str:
     last_letter = ''
     result = ''
     for letter in word:
@@ -43,7 +43,7 @@ def simplify_word(word):
     return result.lower()
 
 
-async def ban_message(message):
+async def ban_message(message: discord.Message) -> None:
     try:
         await message.delete()
     except Exception as e:
@@ -55,37 +55,33 @@ async def ban_message(message):
     print('deleted', message.guild.id, message.author.id)
 
 
-async def check(message):
-    msg_words = [simplify_word(word) for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message.content).split()]
+async def check(message: str) -> bool:
+    msg_words = [simplify_word(word) for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
     for word in msg_words:
         word_r = translit(word, 'ru')
         if word in ban_words or word_r in ban_words:
-            await ban_message(message)
-            return
+            return False
         for form in morph.normal_forms(word_r):
             if form in ban_words:
-                await ban_message(message)
-                return
+                return False
         word_re = word_r.replace('ё', 'е')
         if 'ё' in word_r:
             for form in morph.normal_forms(word_re):
                 if form in ban_words:
-                    await ban_message(message)
-                    return
+                    return False
         for root in ban_roots:
             if root in word or root in word_re or root in word:
-                await ban_message(message)
-                return
+                return False
         try:
             if translator.translate(word, 'ru').text in ban_words:
-                await ban_message(message)
-                return
+                return False
         except ReadTimeout:
             pass
         print(morph.normal_forms(word), translator.translate(word, 'ru').text, word)
+        return True
 
 
-async def create_conn():
+async def create_conn() -> None:
     async with sql_engine.begin() as conn:
         await conn.run_sync(SqlAlchemyBase.metadata.create_all)
 
@@ -233,7 +229,8 @@ async def on_message(message):
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
         settings = g.scalars().one()
     if settings.moderation:
-        await check(message)
+        if not await check(message.content):
+            await ban_message(message)
 
 
 @client.event
@@ -248,7 +245,8 @@ async def on_raw_message_edit(payload):
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
         settings = g.scalars().one()
     if settings.moderation:
-        await check(message)
+        if not await check(message.content):
+            await ban_message(message)
 
 
 @tree.command(name='change_settings', description='Изменить настройки сервера (пользователь={member}, сервер={server})')
@@ -262,21 +260,20 @@ async def change_settings(interaction, on_bad_word_text: str = None, on_member_j
                           on_member_remove_text: str = None, call_to_server_text: str = None,
                           default_role: discord.Role = None):
     if interaction.user.guild_permissions.administrator:
-        sess = session()
-        async with session() as s:
-            g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
+        async with session() as sess:
+            g = await sess.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
             settings = g.scalars().one()
-        if on_bad_word_text:
-            settings.on_bad_word_text = on_bad_word_text
-        if on_member_join_text:
-            settings.on_member_join_text = on_member_join_text
-        if on_member_remove_text:
-            settings.on_member_remove_text = on_member_remove_text
-        if call_to_server_text:
-            settings.call_to_server_text = call_to_server_text
-        if default_role:
-            settings.role = default_role.id
-        await sess.commit()
+            if on_bad_word_text:
+                settings.on_bad_word_text = on_bad_word_text
+            if on_member_join_text:
+                settings.on_member_join_text = on_member_join_text
+            if on_member_remove_text:
+                settings.on_member_remove_text = on_member_remove_text
+            if call_to_server_text:
+                settings.call_to_server_text = call_to_server_text
+            if default_role:
+                settings.role = default_role.id
+            await sess.commit()
         await interaction.response.send_message('Настройки бота для сервера изменены!')
         print('change_settings', interaction.guild_id, interaction.user.id)
 
@@ -285,12 +282,11 @@ async def change_settings(interaction, on_bad_word_text: str = None, on_member_j
 @app_commands.guild_only()
 async def moderation(interaction, value: bool):
     if interaction.user.guild_permissions.administrator:
-        sess = session()
-        async with session() as s:
-            g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
+        async with session() as sess:
+            g = await sess.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
             settings = g.scalars().one()
-        settings.moderation = value
-        await sess.commit()
+            settings.moderation = value
+            await sess.commit()
         await interaction.response.send_message(f'Модерация {"включена" if value else "отключена"}')
         print('moderation', interaction.guild_id, interaction.user.id, value)
     else:
@@ -314,6 +310,10 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
 @app_commands.guild_only()
 @app_commands.describe(count='Количество сообщений (не более 100)', text='Текст сообщений')
 async def generate_spam(interaction, count: int = 1, text: str = 'спамить'):
+    if not await check(text):
+        await interaction.response.send_message('Я не буду этого делать!')
+        await interaction.delete_original_response()
+        return
     count = 100 if count > 100 else count
     global spam_flag
     spam_flag = True
@@ -405,8 +405,14 @@ async def stop_music(interaction):
 async def bot_help(interaction):
     text = ['**AlaskaBot**', '*Это бот, имеющий набор ничем не связанных команд, но необходимых каждому пользователю*',
             'Описание команд:']
-    for c in sorted(tree.get_commands(), key=lambda x: x.name):
-        text.append(f'> **{c.name}** - *{c.description}*{" (работает только на серверах)" if c.guild_only else ""}')
+    if interaction.guild:
+        for c in sorted(tree.get_commands(), key=lambda x: x.name):
+            text.append(f'> **{c.name}** - *{c.description}*')
+    else:
+        for c in sorted(tree.get_commands(), key=lambda x: x.name):
+            if not c.guild_only:
+                text.append(f'> **{c.name}** - *{c.description}*')
+        text.append('*Попробуйте воспользоваться ботом на сервере - больше возможностей!*')
     await interaction.response.send_message('\n'.join(text))
     print('help', interaction.user.id)
 
