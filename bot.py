@@ -3,15 +3,34 @@ from discord import app_commands
 import asyncio
 import json
 import sqlalchemy
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 import youtube_dl
 from pymorphy2 import MorphAnalyzer
 from re import sub
 from transliterate import translit
+from googletrans import Translator
 from random import randint
-from os import remove
+from os import remove, walk, path, listdir, getcwd
+from httpcore._exceptions import ReadTimeout
 
 from settings import TOKEN
+
+morph = MorphAnalyzer()
+translator = Translator()
+
+
+def find_ffmpeg():
+    for dirpath, dirname, filename in walk('/'):
+        if 'ffmpeg.exe' in filename:
+            return path.join(dirpath, 'ffmpeg.exe')
+
+
+def delete_yt():
+    for file in listdir(getcwd()):
+        if file.startswith('youtube'):
+            remove(file)
 
 
 def simplify_word(word):
@@ -29,39 +48,52 @@ async def ban_message(message):
         await message.delete()
     except Exception as e:
         print('error', e.__class__.__name__)
-    settings = session().query(GuildSettings).filter(GuildSettings.guild_id == message.guild.id).first()
+    async with session() as s:
+        g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
+        settings = g.scalars().one()
     await message.channel.send(settings.on_bad_word_text.format(member=message.author.mention, server=message.guild))
     print('deleted', message.guild.id, message.author.id)
 
 
 async def check(message):
-    msg_words = [simplify_word(word) for word in translit(sub('[^A-Za-zА-Яа-яёЁ]+', ' ',
-                                                              message.content), 'ru').split()]
+    msg_words = [simplify_word(word) for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message.content).split()]
     for word in msg_words:
-        if word in ban_words:
+        word_r = translit(word, 'ru')
+        if word in ban_words or word_r in ban_words:
             await ban_message(message)
             return
-        for form in morph.normal_forms(word):
+        for form in morph.normal_forms(word_r):
             if form in ban_words:
                 await ban_message(message)
                 return
-        word_ = word.replace('ё', 'е')
-        if 'ё' in word:
-            for form in morph.normal_forms(word_):
+        word_re = word_r.replace('ё', 'е')
+        if 'ё' in word_r:
+            for form in morph.normal_forms(word_re):
                 if form in ban_words:
                     await ban_message(message)
                     return
         for root in ban_roots:
-            if root in word or root in word_:
+            if root in word or root in word_re or root in word:
                 await ban_message(message)
                 return
-        print(morph.normal_forms(word), word)
+        try:
+            if translator.translate(word, 'ru').text in ban_words:
+                await ban_message(message)
+                return
+        except ReadTimeout:
+            pass
+        print(morph.normal_forms(word), translator.translate(word, 'ru').text, word)
+
+
+async def create_conn():
+    async with sql_engine.begin() as conn:
+        await conn.run_sync(SqlAlchemyBase.metadata.create_all)
 
 
 SqlAlchemyBase = declarative_base()
-sql_engine = sqlalchemy.create_engine('sqlite:///guilds_settings.db')
-SqlAlchemyBase.metadata.create_all(sql_engine)
-session = sessionmaker(bind=sql_engine)
+sql_engine = create_async_engine('sqlite+aiosqlite:///guilds_settings.db')
+asyncio.run(create_conn())
+session = async_sessionmaker(bind=sql_engine)
 
 
 class GuildSettings(SqlAlchemyBase):
@@ -75,8 +107,6 @@ class GuildSettings(SqlAlchemyBase):
     call_to_server_text = sqlalchemy.Column(sqlalchemy.String)
     role = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
 
-
-morph = MorphAnalyzer()
 
 youtube_dl.utils.bug_reports_message = lambda: ''
 ytdl_format_options = {'format': 'bestaudio/best', 'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -104,8 +134,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         if 'entries' in data:
             data = data['url'] if stream else data['entries'][0]
         filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, executable='ffmpeg.exe',
-                                          **ffmpeg_options), data=data), info, filename
+        return cls(discord.FFmpegPCMAudio(filename, executable=find_ffmpeg(),
+                                          **ffmpeg_options), data=data), info
 
 
 spam_flag = False
@@ -133,7 +163,9 @@ async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})')
     print('-----\nGuilds:')
     c = 0
-    guild_list = [i.guild_id for i in session().query(GuildSettings).all()]
+    async with session() as s:
+        g = await s.execute(select(GuildSettings))
+        guild_list = [i.guild_id for i in g.scalars().all()]
     for n, guild in enumerate(client.guilds, 1):
         c += guild.member_count - 1 if guild.member_count else 0
         print(f'{n}. {guild.id} - "{guild.name}"')
@@ -147,7 +179,7 @@ async def on_ready():
                                call_to_server_text='Пользователь {member} зовет Вас на сервер "{server}"!',
                                role=None)
             db_sess.add(ng)
-            db_sess.commit()
+            await db_sess.commit()
     print('Total users in guilds:', c)
     print('-----')
 
@@ -165,14 +197,16 @@ async def on_guild_join(guild):
                            role=None)
         db_sess = session()
         db_sess.add(ng)
-        db_sess.commit()
+        await db_sess.commit()
         print('new guild', guild.id)
 
 
 @client.event
 async def on_member_join(member):
     guild = member.guild
-    settings = session().query(GuildSettings).filter(GuildSettings.guild_id == member.guild.id).first()
+    async with session() as s:
+        g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
+        settings = g.scalars().one()
     if settings.role:
         await member.add_roles(guild.get_role(settings.role))
     if guild.system_channel is not None:
@@ -183,7 +217,9 @@ async def on_member_join(member):
 @client.event
 async def on_member_remove(member):
     guild = member.guild
-    settings = session().query(GuildSettings).filter(GuildSettings.guild_id == member.guild.id).first()
+    async with session() as s:
+        g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
+        settings = g.scalars().one()
     if guild.system_channel is not None and member.id != client.user.id:
         await guild.system_channel.send(settings.on_member_remove_text.format(member=member.mention, server=guild.name))
     print('remove', guild.id, member.id)
@@ -193,7 +229,9 @@ async def on_member_remove(member):
 async def on_message(message):
     if not message.guild or message.author.id == client.user.id:
         return
-    settings = session().query(GuildSettings).filter(GuildSettings.guild_id == message.guild.id).first()
+    async with session() as s:
+        g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
+        settings = g.scalars().one()
     if settings.moderation:
         await check(message)
 
@@ -206,12 +244,14 @@ async def on_raw_message_edit(payload):
             return
     except AttributeError:
         return
-    settings = session().query(GuildSettings).filter(GuildSettings.guild_id == message.guild.id).first()
+    async with session() as s:
+        g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
+        settings = g.scalars().one()
     if settings.moderation:
         await check(message)
 
 
-@tree.command(name='change_settings', description='изменить настройки сервера (пользователь={member}, сервер={server})')
+@tree.command(name='change_settings', description='Изменить настройки сервера (пользователь={member}, сервер={server})')
 @app_commands.guild_only()
 @app_commands.describe(on_bad_word_text='Вывод, когда пользователь вводит плохое слово',
                        on_member_join_text='Вывод, когда на сервер заходит новый пользователь',
@@ -223,7 +263,9 @@ async def change_settings(interaction, on_bad_word_text: str = None, on_member_j
                           default_role: discord.Role = None):
     if interaction.user.guild_permissions.administrator:
         sess = session()
-        settings = sess.query(GuildSettings).filter(GuildSettings.guild_id == interaction.guild.id).first()
+        async with session() as s:
+            g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
+            settings = g.scalars().one()
         if on_bad_word_text:
             settings.on_bad_word_text = on_bad_word_text
         if on_member_join_text:
@@ -234,19 +276,21 @@ async def change_settings(interaction, on_bad_word_text: str = None, on_member_j
             settings.call_to_server_text = call_to_server_text
         if default_role:
             settings.role = default_role.id
-        sess.commit()
+        await sess.commit()
         await interaction.response.send_message('Настройки бота для сервера изменены!')
         print('change_settings', interaction.guild_id, interaction.user.id)
 
 
-@tree.command(name='moderation', description='включить/отключить удаление нежелательных сообщений')
+@tree.command(name='moderation', description='Включить/отключить удаление нежелательных сообщений')
 @app_commands.guild_only()
 async def moderation(interaction, value: bool):
     if interaction.user.guild_permissions.administrator:
         sess = session()
-        settings = sess.query(GuildSettings).filter(GuildSettings.guild_id == interaction.guild.id).first()
+        async with session() as s:
+            g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
+            settings = g.scalars().one()
         settings.moderation = value
-        sess.commit()
+        await sess.commit()
         await interaction.response.send_message(f'Модерация {"включена" if value else "отключена"}')
         print('moderation', interaction.guild_id, interaction.user.id, value)
     else:
@@ -302,7 +346,9 @@ async def call_to_server(interaction, member: discord.User):
         elif member.id == interaction.user.id:
             await member.send('Зачем кому-то приглашать самого себя?')
         else:
-            settings = session().query(GuildSettings).filter(GuildSettings.guild_id == interaction.guild.id).first()
+            async with session() as s:
+                g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
+                settings = g.scalars().one()
             await member.send(settings.call_to_server_text.format(member=interaction.user, server=interaction.guild))
         print('call_to_server', interaction.guild_id, interaction.user.id, member.id)
     except discord.Forbidden:
@@ -324,7 +370,7 @@ async def play_music(interaction, yt_url: str = 'https://www.youtube.com/watch?v
             await interaction.response.send_message('Вы не указали голосовой канал!')
             return
     await interaction.response.defer()
-    music, info, file = await YTDLSource.from_url(yt_url, loop=client.loop, stream=stream)
+    music, info = await YTDLSource.from_url(yt_url, loop=client.loop, stream=stream)
     text = f'**Воспроизводится:** `{info["title"]}`'
     await interaction.followup.send(content=text)
     try:
@@ -339,10 +385,7 @@ async def play_music(interaction, yt_url: str = 'https://www.youtube.com/watch?v
     except Exception as e:
         await interaction.response.edit_message(content='Ошибка воспроизведения')
         print('music_error', e.__class__.__name__, e)
-    try:
-        remove(file)
-    except Exception:
-        pass
+    delete_yt()
 
 
 @tree.command(name='stop_music', description='Остановить музыку')
@@ -353,8 +396,19 @@ async def stop_music(interaction):
         await voice_client.disconnect()
         await interaction.response.send_message('Музыка остановлена')
         print('stop_music', interaction.guild_id, interaction.user.id)
+        delete_yt()
     else:
         await interaction.response.send_message('Ошибка: Сейчас ночего не воспроизводится')
+
+
+@tree.command(name='help', description='Показать описания команд')
+async def bot_help(interaction):
+    text = ['**AlaskaBot**', '*Это бот, имеющий набор ничем не связанных команд, но необходимых каждому пользователю*',
+            'Описание команд:']
+    for c in sorted(tree.get_commands(), key=lambda x: x.name):
+        text.append(f'> **{c.name}** - *{c.description}*{" (работает только на серверах)" if c.guild_only else ""}')
+    await interaction.response.send_message('\n'.join(text))
+    print('help', interaction.user.id)
 
 
 if __name__ == '__main__':
