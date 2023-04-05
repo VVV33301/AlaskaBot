@@ -7,13 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 import youtube_dl
+from pytube import extract
 from pymorphy2 import MorphAnalyzer
-from re import sub
+from re import sub, search
 from transliterate import translit
 from googletrans import Translator
 from random import randint
 from os import remove, walk, path, listdir, getcwd
-from httpcore._exceptions import ReadTimeout
 
 from settings import TOKEN
 
@@ -29,7 +29,8 @@ def find_ffmpeg() -> path.join:
 
 def delete_yt() -> None:
     for file in listdir(getcwd()):
-        if file.startswith('youtube'):
+        f = file.split('-')
+        if f[0] == 'youtube' and f[1] != 'dQw4w9WgXcQ':
             remove(file)
 
 
@@ -58,27 +59,32 @@ async def ban_message(message: discord.Message) -> None:
 async def check(message: str) -> bool:
     msg_words = [simplify_word(word) for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
     for word in msg_words:
-        word_r = translit(word, 'ru')
+        try:
+            if not search('[а-яА-Я]', word):
+                word_t = translator.translate(word, 'ru').text
+                print('translated')
+                if word_t in ban_words:
+                    return True
+            else:
+                word_t = word
+        except Exception as e:
+            print('translate_error', e.__traceback__)
+            word_t = word
+        word_r = translit(word_t, 'ru')
         if word in ban_words or word_r in ban_words:
-            return False
+            return True
         for form in morph.normal_forms(word_r):
             if form in ban_words:
-                return False
+                return True
         word_re = word_r.replace('ё', 'е')
         if 'ё' in word_r:
             for form in morph.normal_forms(word_re):
                 if form in ban_words:
-                    return False
+                    return True
         for root in ban_roots:
             if root in word or root in word_re or root in word:
-                return False
-        try:
-            if translator.translate(word, 'ru').text in ban_words:
-                return False
-        except ReadTimeout:
-            pass
-        print(morph.normal_forms(word), translator.translate(word, 'ru').text, word)
-        return True
+                return True
+        print(morph.normal_forms(word), word_t, word_r, word)
 
 
 async def create_conn() -> None:
@@ -229,7 +235,7 @@ async def on_message(message):
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
         settings = g.scalars().one()
     if settings.moderation:
-        if not await check(message.content):
+        if await check(message.content):
             await ban_message(message)
 
 
@@ -245,7 +251,7 @@ async def on_raw_message_edit(payload):
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == message.guild.id))
         settings = g.scalars().one()
     if settings.moderation:
-        if not await check(message.content):
+        if await check(message.content):
             await ban_message(message)
 
 
@@ -310,7 +316,7 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
 @app_commands.guild_only()
 @app_commands.describe(count='Количество сообщений (не более 100)', text='Текст сообщений')
 async def generate_spam(interaction, count: int = 1, text: str = 'спамить'):
-    if not await check(text):
+    if await check(text):
         await interaction.response.send_message('Я не буду этого делать!')
         await interaction.delete_original_response()
         return
@@ -359,32 +365,39 @@ async def call_to_server(interaction, member: discord.User):
 @tree.command(name='play_music', description='Запустить музыку из ютуба')
 @app_commands.guild_only()
 @app_commands.describe(yt_url='Полная ссылка на видео из ютуба',
-                       channel='Голосовой канал для воспроизведения музыки (по умолчанию тот, на котором вы)',
-                       stream='Скачивать видео заранее (медленнее) или во время воспроизведения (опаснее)')
+                       channel='Голосовой канал для воспроизведения музыки (по умолчанию тот, на котором вы)')
 async def play_music(interaction, yt_url: str = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-                     channel: discord.VoiceChannel = None, stream: bool = False):
+                     channel: discord.VoiceChannel = None):
+    if interaction.guild.voice_client:
+        await interaction.response.send_message('Сначала необходимо остановить музыку, играющую сейчас')
+        return
     if not channel:
         try:
             channel = interaction.user.voice.channel
         except AttributeError:
             await interaction.response.send_message('Вы не указали голосовой канал!')
             return
+    yt_url = f'https://www.youtube.com/watch?v={extract.video_id(yt_url)}'
     await interaction.response.defer()
-    music, info = await YTDLSource.from_url(yt_url, loop=client.loop, stream=stream)
-    text = f'**Воспроизводится:** `{info["title"]}`'
-    await interaction.followup.send(content=text)
     try:
+        music, info = await YTDLSource.from_url(yt_url, loop=client.loop, stream=False)
+        text = f'**Воспроизводится:** `{info["title"]}`'
         await channel.connect()
         print('music_play', interaction.guild_id, interaction.user.id, channel.id)
         voice_client = interaction.guild.voice_client
+        await interaction.followup.send(content=text)
         if voice_client.is_connected():
             voice_client.play(music)
         while voice_client.is_playing():
             await asyncio.sleep(1)
         await voice_client.disconnect()
     except Exception as e:
-        await interaction.response.edit_message(content='Ошибка воспроизведения')
-        print('music_error', e.__class__.__name__, e)
+        try:
+            await interaction.followup.send(content='Ошибка воспроизведения')
+        except Exception as ee:
+            await interaction.response.send_message(content='Ошибка воспроизведения')
+            print(ee.__traceback__)
+        print('music_error', e.__traceback__)
     delete_yt()
 
 
