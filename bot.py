@@ -14,11 +14,13 @@ from transliterate import translit
 from googletrans import Translator
 from random import randint
 from os import remove, walk, path, listdir, getcwd
+from asteval import Interpreter
 
 from settings import TOKEN
 
 morph = MorphAnalyzer()
 translator = Translator()
+math_eval = Interpreter(no_print=True, use_numpy=False)
 
 
 def find_ffmpeg() -> path.join:
@@ -59,18 +61,7 @@ async def ban_message(message: discord.Message) -> None:
 async def check(message: str) -> bool:
     msg_words = [simplify_word(word) for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
     for word in msg_words:
-        try:
-            if not search('[а-яА-Я]', word):
-                word_t = translator.translate(word, 'ru').text
-                print('translated')
-                if word_t in ban_words:
-                    return True
-            else:
-                word_t = word
-        except Exception as e:
-            print('translate_error', e.__traceback__)
-            word_t = word
-        word_r = translit(word_t, 'ru')
+        word_r = translit(word, 'ru')
         if word in ban_words or word_r in ban_words:
             return True
         for form in morph.normal_forms(word_r):
@@ -82,9 +73,31 @@ async def check(message: str) -> bool:
                 if form in ban_words:
                     return True
         for root in ban_roots:
-            if root in word or root in word_re or root in word:
+            if root in word or root in word_re:
                 return True
-        print(morph.normal_forms(word), word_t, word_r, word)
+        try:
+            if not search('[а-яА-Я]', word):
+                word_t = translator.translate(word, 'ru').text
+                print('translated')
+                if word_t in ban_words:
+                    return True
+                for form in morph.normal_forms(word_t):
+                    if form in ban_words:
+                        return True
+                word_rt = word_r.replace('ё', 'е')
+                if 'ё' in word_r:
+                    for form in morph.normal_forms(word_rt):
+                        if form in ban_words:
+                            return True
+                for root in ban_roots:
+                    if root in word_t or root in word_rt:
+                        return True
+            else:
+                word_t = word
+        except Exception as e:
+            print('translate_error', e.__traceback__)
+            word_t = word
+        print(morph.normal_forms(word_t), morph.normal_forms(word_r), word_t, word_r, word)
 
 
 async def create_conn() -> None:
@@ -189,7 +202,7 @@ async def on_ready():
 @client.event
 async def on_guild_join(guild):
     if guild.system_channel is not None:
-        await guild.system_channel.send('Привет! Меня зовут AlaskaBot и я ваш новый бот!')
+        await guild.system_channel.send('Привет! Меня зовут AlaskaBot и я ваш новый бот! Попробуйте команду *help*')
         ng = GuildSettings(guild_id=guild.id,
                            moderation=False,
                            on_bad_word_text='Пользователь {member} написал запрещенное слово',
@@ -255,6 +268,23 @@ async def on_raw_message_edit(payload):
             await ban_message(message)
 
 
+@tree.command(name='help', description='Показать описания команд')
+async def bot_help(interaction):
+    text = ['**AlaskaBot**', '*Это бот, имеющий набор ничем не связанных команд, но необходимых каждому пользователю*',
+            'Функционал - *модерация*, *спамерство*, *отправка личных сообщений*, *воспроизведение музыки* и т.д.',
+            'Описание команд:']
+    if interaction.guild:
+        for c in sorted(tree.get_commands(), key=lambda x: x.name):
+            text.append(f'> **{c.name}** - *{c.description}*')
+    else:
+        for c in sorted(tree.get_commands(), key=lambda x: x.name):
+            if not c.guild_only:
+                text.append(f'> **{c.name}** - *{c.description}*')
+        text.append('*Попробуйте воспользоваться ботом на сервере - больше возможностей!*')
+    await interaction.response.send_message('\n'.join(text))
+    print('help', interaction.user.id)
+
+
 @tree.command(name='change_settings', description='Изменить настройки сервера (пользователь={member}, сервер={server})')
 @app_commands.guild_only()
 @app_commands.describe(on_bad_word_text='Вывод, когда пользователь вводит плохое слово',
@@ -312,6 +342,23 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
         print('random', None, interaction.user.id)
 
 
+@tree.command(name='calculate', description='Посчитать математические выражения')
+@app_commands.describe(expression='Выражение ("," -> ".", корень -> sqrt(), модуль -> abs() и т.д.)')
+async def calculate(interaction, expression: str):
+    try:
+        res = math_eval(expression)
+    except Exception:
+        res = None
+    if res is not None:
+        await interaction.response.send_message(res)
+    else:
+        await interaction.response.send_message('Ошибка!')
+    try:
+        print('calculate', interaction.guild_id, interaction.user.id)
+    except AttributeError:
+        print('calculate', None, interaction.user.id)
+
+
 @tree.command(name='generate_spam', description='Начать спам')
 @app_commands.guild_only()
 @app_commands.describe(count='Количество сообщений (не более 100)', text='Текст сообщений')
@@ -337,7 +384,7 @@ async def generate_spam(interaction, count: int = 1, text: str = 'спамить
 async def stop_spam(interaction):
     global spam_flag
     spam_flag = False
-    await interaction.response.send_message('Остановка...')
+    await interaction.response.send_message('Прекращение спамминга')
     print('stop_spam', interaction.guild_id, interaction.user.id)
 
 
@@ -412,22 +459,6 @@ async def stop_music(interaction):
         delete_yt()
     else:
         await interaction.response.send_message('Ошибка: Сейчас ночего не воспроизводится')
-
-
-@tree.command(name='help', description='Показать описания команд')
-async def bot_help(interaction):
-    text = ['**AlaskaBot**', '*Это бот, имеющий набор ничем не связанных команд, но необходимых каждому пользователю*',
-            'Описание команд:']
-    if interaction.guild:
-        for c in sorted(tree.get_commands(), key=lambda x: x.name):
-            text.append(f'> **{c.name}** - *{c.description}*')
-    else:
-        for c in sorted(tree.get_commands(), key=lambda x: x.name):
-            if not c.guild_only:
-                text.append(f'> **{c.name}** - *{c.description}*')
-        text.append('*Попробуйте воспользоваться ботом на сервере - больше возможностей!*')
-    await interaction.response.send_message('\n'.join(text))
-    print('help', interaction.user.id)
 
 
 if __name__ == '__main__':
