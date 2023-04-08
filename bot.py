@@ -345,14 +345,15 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
 @tree.command(name='calculate', description='Посчитать математические выражения')
 @app_commands.describe(expression='Выражение ("," -> ".", корень -> sqrt(), модуль -> abs() и т.д.)')
 async def calculate(interaction, expression: str):
+    await interaction.response.defer()
     try:
         res = math_eval(expression)
     except Exception:
         res = None
     if res is not None:
-        await interaction.response.send_message(res)
+        await interaction.followup.send(content=res)
     else:
-        await interaction.response.send_message('Ошибка!')
+        await interaction.followup.send(content='Ошибка!')
     try:
         print('calculate', interaction.guild_id, interaction.user.id)
     except AttributeError:
