@@ -15,12 +15,15 @@ from googletrans import Translator
 from random import randint
 from os import remove, walk, path, listdir, getcwd
 from asteval import Interpreter
+import math
 
 from settings import TOKEN
 
 morph = MorphAnalyzer()
 translator = Translator()
-math_eval = Interpreter(no_print=True, use_numpy=False)
+
+calc_list = ['int', 'float', *dir(math)[5:], '+', '-', '*', '/', '//', '**', '%', '(', ')', '.']
+math_eval = Interpreter(no_print=True, use_numpy=False, builtins_readonly=True)
 
 
 def find_ffmpeg() -> path.join:
@@ -43,7 +46,7 @@ def simplify_word(word: str) -> str:
         if letter != last_letter:
             last_letter = letter
             result += letter
-    return result.lower()
+    return result
 
 
 async def ban_message(message: discord.Message) -> None:
@@ -57,10 +60,17 @@ async def ban_message(message: discord.Message) -> None:
     await message.channel.send(settings.on_bad_word_text.format(member=message.author.mention, server=message.guild))
     print('deleted', message.guild.id, message.author.id)
 
-
 async def check(message: str) -> bool:
-    msg_words = [simplify_word(word) for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
+    msg_words = [word.lower() for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
     for word in msg_words:
+        word_r = translit(word, 'ru')
+        word_re = word_r.replace('ё', 'е')
+        if word in ban_words or word_r in ban_words:
+            return True
+        for root in ban_roots:
+            if root in word or root in word_re:
+                return True
+        word = simplify_word(word)
         word_r = translit(word, 'ru')
         if word in ban_words or word_r in ban_words:
             return True
@@ -343,16 +353,27 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
 
 
 @tree.command(name='calculate', description='Посчитать математические выражения')
-@app_commands.describe(expression='Выражение ("," -> ".", корень -> sqrt(), модуль -> abs() и т.д.)')
+@app_commands.describe(expression='Выражение (пробелы между числами и символами; "," -> ".")')
 async def calculate(interaction, expression: str):
+    await interaction.response.defer()
+    if expression == 'help':
+        await interaction.followup.send(content=f'{"; ".join(calc_list)}')
+        return
+    for i in expression.replace('(', ' ').replace(')', ' ').split():
+        if not i.replace('.', '', 1).isdigit() and i not in calc_list:
+            await interaction.followup.send(content='Ошибка!')
+            return
     try:
         res = math_eval(expression)
     except Exception:
         res = None
-    if res is not None:
-        await interaction.response.send_message(res)
-    else:
-        await interaction.response.send_message('Ошибка!')
+    try:
+        if res is not None:
+            await interaction.followup.send(content=res)
+        else:
+            raise
+    except Exception:
+        await interaction.followup.send(content='Ошибка!')
     try:
         print('calculate', interaction.guild_id, interaction.user.id)
     except AttributeError:
