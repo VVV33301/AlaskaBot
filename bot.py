@@ -281,7 +281,7 @@ async def on_raw_message_edit(payload):
 @tree.command(name='help', description='Показать описания команд')
 async def bot_help(interaction):
     text = ['**AlaskaBot**', '*Это бот, имеющий набор ничем не связанных команд, но необходимых каждому пользователю*',
-            'Функционал - *модерация*, *спамерство*, *отправка личных сообщений*, *воспроизведение музыки* и т.д.',
+            'Функционал - *модерация*, *написание спама*, *отправка личных сообщений*, *воспроизведение музыки* и т.д.',
             'Описание команд:']
     if interaction.guild:
         for c in sorted(tree.get_commands(), key=lambda x: x.name):
@@ -353,27 +353,37 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
 
 
 @tree.command(name='calculate', description='Посчитать математические выражения')
-@app_commands.describe(expression='Выражение (пробелы между числами и символами; "," -> ".")')
+@app_commands.describe(expression='Выражение (по стандарту Python PEP8; показать все операции - help)')
 async def calculate(interaction, expression: str):
     await interaction.response.defer()
     if expression == 'help':
-        await interaction.followup.send(content=f'{"; ".join(calc_list)}')
+        text = ['***Помощь по команде /calculate***', '**Арифметические знаки:**', '> +\tсложение', '> -\tвычитание',
+                '> *\tумножение', '> /\tделение', '> //\tцелочисленное деление', '> **\tстепень',
+                '> %\tостаток от деления', '> ()\tскобки', '> .\tдробная часть',
+                '> ,\tраздделение аргументов в функциях', '**Функции:**',
+                'int() - превращение в целое число', 'float() - превращение в вещественное число',
+                '[остальные функции по этой ссылке](<https://docs.python.org/3/library/math.html>)']
+        await interaction.followup.send(content='\n'.join(text))
         return
-    for i in expression.replace('(', ' ').replace(')', ' ').split():
-        if not i.replace('.', '', 1).isdigit() and i not in calc_list:
+    for i in expression.replace('(', ' ').replace(')', ' ').replace(',', '').split():
+        if not i.replace('.', '', 1).replace('-', '', 1).isdigit() and i not in calc_list:
             await interaction.followup.send(content='Ошибка!')
+            print('calculate', 'ban', expression)
             return
     try:
-        res = math_eval(expression)
+        res = math_eval(expression)  # Опасно
     except Exception:
         res = None
     try:
         if res is not None:
-            await interaction.followup.send(content=res)
+            text = expression.replace("*", "\*")
+            await interaction.followup.send(content=f'{text} = {res}')
         else:
             raise
     except Exception:
         await interaction.followup.send(content='Ошибка!')
+        print('calculate', 'error', expression)
+        return
     try:
         print('calculate', interaction.guild_id, interaction.user.id)
     except AttributeError:
@@ -386,6 +396,7 @@ async def calculate(interaction, expression: str):
 async def generate_spam(interaction, count: int = 1, text: str = 'спамить'):
     if await check(text):
         await interaction.response.send_message('Я не буду этого делать!')
+        await asyncio.sleep(1.5)
         await interaction.delete_original_response()
         return
     count = 100 if count > 100 else count
@@ -405,7 +416,7 @@ async def generate_spam(interaction, count: int = 1, text: str = 'спамить
 async def stop_spam(interaction):
     global spam_flag
     spam_flag = False
-    await interaction.response.send_message('Прекращение спамминга')
+    await interaction.response.send_message('Прекращение спама')
     print('stop_spam', interaction.guild_id, interaction.user.id)
 
 
@@ -480,6 +491,16 @@ async def stop_music(interaction):
         delete_yt()
     else:
         await interaction.response.send_message('Ошибка: Сейчас ночего не воспроизводится')
+
+
+@tree.command(name='server_info', description='Вывести информацию о сервере')
+@app_commands.guild_only()
+async def server_info(interaction, params: str = None):
+    guild = interaction.guild
+    if params == 'delete' and interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message('Удаление сервера... ошибка!')
+        return
+    await interaction.response.send_message(f'Сервер {guild.id} - "{guild.name}"\nУчастников: {guild.member_count}')
 
 
 if __name__ == '__main__':
