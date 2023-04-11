@@ -14,7 +14,6 @@ from transliterate import translit
 from googletrans import Translator
 from random import randint
 from os import remove, walk, path, listdir, getcwd
-from asteval import Interpreter
 import math
 
 from settings import TOKEN
@@ -22,13 +21,12 @@ from settings import TOKEN
 morph = MorphAnalyzer()
 translator = Translator()
 
-calc_list = ['int', 'float', *dir(math)[5:], '+', '-', '*', '/', '//', '**', '%', '(', ')', '.']
-math_eval = Interpreter(no_print=True, use_numpy=False, builtins_readonly=True)
-
+calc_list = ['int', 'float', 'sum', 'round', *dir(math)[5:]]
 
 def find_ffmpeg() -> path.join:
     for dirpath, dirname, filename in walk('/'):
         if 'ffmpeg.exe' in filename:
+            print('ffmpeg.exe found in', dirpath)
             return path.join(dirpath, 'ffmpeg.exe')
 
 
@@ -126,6 +124,7 @@ class GuildSettings(SqlAlchemyBase):
 
     guild_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
     moderation = sqlalchemy.Column(sqlalchemy.Boolean)
+    spam_count_max = sqlalchemy.Column(sqlalchemy.Integer)
     on_bad_word_text = sqlalchemy.Column(sqlalchemy.String)
     on_member_join_text = sqlalchemy.Column(sqlalchemy.String)
     on_member_remove_text = sqlalchemy.Column(sqlalchemy.String)
@@ -198,6 +197,7 @@ async def on_ready():
             db_sess = session()
             ng = GuildSettings(guild_id=guild.id,
                                moderation=False,
+                               spam_count_max=100,
                                on_bad_word_text='Пользователь {member} написал запрещенное слово',
                                on_member_join_text='Привет {member}, добро пожаловать на сервер "{server}"!',
                                on_member_remove_text='Пользователь {member} покинул сервер "{server}"',
@@ -212,9 +212,10 @@ async def on_ready():
 @client.event
 async def on_guild_join(guild):
     if guild.system_channel is not None:
-        await guild.system_channel.send('Привет! Меня зовут AlaskaBot и я ваш новый бот! Попробуйте команду *help*')
+        await guild.system_channel.send('Привет! Меня зовут AlaskaBot и я ваш новый бот! Попробуйте команду */help*')
         ng = GuildSettings(guild_id=guild.id,
                            moderation=False,
+                           spam_count_max=100,
                            on_bad_word_text='Пользователь {member} написал запрещенное слово',
                            on_member_join_text='Привет {member}, добро пожаловать на сервер "{server}"!',
                            on_member_remove_text='Пользователь {member} покинул сервер "{server}"',
@@ -232,10 +233,11 @@ async def on_member_join(member):
     async with session() as s:
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
         settings = g.scalars().one()
-    if settings.role:
-        await member.add_roles(guild.get_role(settings.role))
-    if guild.system_channel is not None:
-        await guild.system_channel.send(settings.on_member_join_text.format(member=member.mention, server=guild.name))
+        if settings.role:
+            await member.add_roles(guild.get_role(settings.role))
+        if guild.system_channel is not None:
+            await guild.system_channel.send(settings.on_member_join_text.format(
+                member=member.mention, server=guild.name))
     print('join', guild.id, member.id)
 
 
@@ -245,8 +247,9 @@ async def on_member_remove(member):
     async with session() as s:
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
         settings = g.scalars().one()
-    if guild.system_channel is not None and member.id != client.user.id:
-        await guild.system_channel.send(settings.on_member_remove_text.format(member=member.mention, server=guild.name))
+        if guild.system_channel is not None and member.id != client.user.id:
+            await guild.system_channel.send(settings.on_member_remove_text.format(
+                member=member.mention, server=guild.name))
     print('remove', guild.id, member.id)
 
 
@@ -301,10 +304,11 @@ async def bot_help(interaction):
                        on_member_join_text='Вывод, когда на сервер заходит новый пользователь',
                        on_member_remove_text='Вывод, когда пользователь покидает сервер',
                        call_to_server_text='Текст вызова пользователя на сервер',
-                       default_role='Роль по умолчанию (указать роль либо её id)')
+                       default_role='Роль по умолчанию (указать роль либо её id)',
+                       spam_count_max='Максимальное кол-во сообщений в команде generate_spam')
 async def change_settings(interaction, on_bad_word_text: str = None, on_member_join_text: str = None,
                           on_member_remove_text: str = None, call_to_server_text: str = None,
-                          default_role: discord.Role = None):
+                          default_role: discord.Role = None, spam_count_max: int = None):
     if interaction.user.guild_permissions.administrator:
         async with session() as sess:
             g = await sess.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
@@ -319,6 +323,8 @@ async def change_settings(interaction, on_bad_word_text: str = None, on_member_j
                 settings.call_to_server_text = call_to_server_text
             if default_role:
                 settings.role = default_role.id
+            if spam_count_max:
+                settings.spam_count_max = spam_count_max
             await sess.commit()
         await interaction.response.send_message('Настройки бота для сервера изменены!')
         print('change_settings', interaction.guild_id, interaction.user.id)
@@ -353,7 +359,7 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
 
 
 @tree.command(name='calculate', description='Посчитать математические выражения')
-@app_commands.describe(expression='Выражение (по стандарту Python PEP8; показать все операции - help)')
+@app_commands.describe(expression='Выражение (показать все операции - help)')
 async def calculate(interaction, expression: str):
     await interaction.response.defer()
     if expression == 'help':
@@ -362,16 +368,18 @@ async def calculate(interaction, expression: str):
                 '> %\tостаток от деления', '> ()\tскобки', '> .\tдробная часть',
                 '> ,\tраздделение аргументов в функциях', '**Функции:**',
                 'int() - превращение в целое число', 'float() - превращение в вещественное число',
+                'sum() - сложение списка', 'round() - округление',
                 '[остальные функции по этой ссылке](<https://docs.python.org/3/library/math.html>)']
         await interaction.followup.send(content='\n'.join(text))
         return
-    for i in expression.replace('(', ' ').replace(')', ' ').replace(',', '').split():
-        if not i.replace('.', '', 1).replace('-', '', 1).isdigit() and i not in calc_list:
+    for i in sub('[^a-z0-9]', ' ', expression).split():
+        if not i.isdigit() and i not in calc_list:
             await interaction.followup.send(content='Ошибка!')
             print('calculate', 'ban', expression)
             return
     try:
-        res = math_eval(expression)  # Опасно
+        res = eval(expression, {"__builtins__": None}, {**math.__dict__, 'int': int, 'float': float,
+                                                        'sum': sum, 'round': round})  # Опасно
     except Exception:
         res = None
     try:
@@ -392,23 +400,28 @@ async def calculate(interaction, expression: str):
 
 @tree.command(name='generate_spam', description='Начать спам')
 @app_commands.guild_only()
-@app_commands.describe(count='Количество сообщений (не более 100)', text='Текст сообщений')
-async def generate_spam(interaction, count: int = 1, text: str = 'спамить'):
+@app_commands.describe(count='Количество сообщений', text='Текст сообщений')
+async def generate_spam(interaction, text: str, count: int = 3):
     if await check(text):
         await interaction.response.send_message('Я не буду этого делать!')
         await asyncio.sleep(1.5)
         await interaction.delete_original_response()
         return
-    count = 100 if count > 100 else count
+    async with session() as s:
+        g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
+        settings = g.scalars().one()
+        if count > (t := settings.spam_count_max):
+            count = t
     global spam_flag
     spam_flag = True
     await interaction.response.send_message(text)
+    print('generate_spam', interaction.guild_id, interaction.user.id)
     for _ in range(1, count):
         if spam_flag:
+            await asyncio.sleep(0.7)
             await interaction.channel.send(text)
         else:
             break
-    print('generate_spam', interaction.guild_id, interaction.user.id)
 
 
 @tree.command(name='stop_spam', description='Остановить спам')
@@ -493,14 +506,33 @@ async def stop_music(interaction):
         await interaction.response.send_message('Ошибка: Сейчас ночего не воспроизводится')
 
 
-@tree.command(name='server_info', description='Вывести информацию о сервере')
+@tree.command(name='information', description='Вывести информацию о сервере')
 @app_commands.guild_only()
-async def server_info(interaction, params: str = None):
+@app_commands.describe(parameter='тип необходимой информации (server, members, bot и т.д)')
+async def information(interaction, parameter: str = None):
     guild = interaction.guild
-    if params == 'delete' and interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message('Удаление сервера... ошибка!')
-        return
-    await interaction.response.send_message(f'Сервер {guild.id} - "{guild.name}"\nУчастников: {guild.member_count}')
+    if parameter == 'delete':
+        if interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message('Удаление сервера...')
+            s = morph.parse('секунда')[0]
+            for i in range(30):
+                await interaction.channel.send(f'До удаления сервера {30 - i} {s.make_agree_with_number(30 - i).word}')
+                await asyncio.sleep(1)
+            await interaction.guild.delete()
+        else:
+            await interaction.response.send_message('Удаление сервера... ошибка!')
+    elif parameter == 'members':
+        await interaction.response.send_message('\n'.join([f'{n}. {i}' for n, i in
+                                                           enumerate(sorted(map(str, guild.members)), 1)]))
+    elif parameter == 'server':
+        await interaction.response.send_message(
+            f'Сервер "{guild.name}"\nid: {guild.id}\nУчастников: {guild.member_count}')
+    elif parameter == 'bot':
+        await interaction.response.send_message(
+            f'*AlaskaBot*\nСерверов: {len(t := client.guilds)}\nПользователей: {sum([len(i.members) - 1 for i in t])}')
+    else:
+        await interaction.response.send_message(f'Сервер "{guild.name}"')
+    print('information', parameter, interaction.guild_id, interaction.user.id)
 
 
 if __name__ == '__main__':
