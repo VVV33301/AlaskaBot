@@ -503,15 +503,15 @@ async def stop_music(interaction):
         print('stop_music', interaction.guild_id, interaction.user.id)
         delete_yt()
     else:
-        await interaction.response.send_message('Ошибка: Сейчас ночего не воспроизводится')
+        await interaction.response.send_message('Ошибка: Сейчас ничего не воспроизводится')
 
 
 @tree.command(name='information', description='Вывести информацию о сервере')
 @app_commands.guild_only()
 @app_commands.describe(parameter='тип необходимой информации (server, members, bot и т.д)')
-async def information(interaction, parameter: str = None):
+async def information(interaction, parameter: str):
     guild = interaction.guild
-    if parameter == 'delete':
+    if parameter == 'delete server i am admin':
         if interaction.user.guild_permissions.administrator:
             await interaction.response.send_message('Удаление сервера...')
             s = morph.parse('секунда')[0]
