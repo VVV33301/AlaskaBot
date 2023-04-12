@@ -10,18 +10,18 @@ import youtube_dl
 from pytube import extract
 from pymorphy2 import MorphAnalyzer
 from re import sub, search
-from transliterate import translit
 from googletrans import Translator
 from random import randint
 from os import remove, walk, path, listdir, getcwd
 import math
 
 from settings import TOKEN
+from translator import translate
 
 morph = MorphAnalyzer()
 translator = Translator()
-
 calc_list = ['int', 'float', 'sum', 'round', *dir(math)[5:]]
+
 
 def find_ffmpeg() -> path.join:
     for dirpath, dirname, filename in walk('/'):
@@ -58,10 +58,11 @@ async def ban_message(message: discord.Message) -> None:
     await message.channel.send(settings.on_bad_word_text.format(member=message.author.mention, server=message.guild))
     print('deleted', message.guild.id, message.author.id)
 
+
 async def check(message: str) -> bool:
     msg_words = [word.lower() for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
     for word in msg_words:
-        word_r = translit(word, 'ru')
+        word_r = translate(word)
         word_re = word_r.replace('ё', 'е')
         if word in ban_words or word_r in ban_words:
             return True
@@ -69,7 +70,7 @@ async def check(message: str) -> bool:
             if root in word or root in word_re:
                 return True
         word = simplify_word(word)
-        word_r = translit(word, 'ru')
+        word_r = translate(word)
         if word in ban_words or word_r in ban_words:
             return True
         for form in morph.normal_forms(word_r):
@@ -472,7 +473,7 @@ async def play_music(interaction, yt_url: str = 'https://www.youtube.com/watch?v
     yt_url = f'https://www.youtube.com/watch?v={extract.video_id(yt_url)}'
     await interaction.response.defer()
     try:
-        music, info = await YTDLSource.from_url(yt_url, loop=client.loop, stream=False)
+        music, info = await YTDLSource.from_url(yt_url, loop=client.loop)
         text = f'**Воспроизводится:** `{info["title"]}`'
         await channel.connect()
         print('music_play', interaction.guild_id, interaction.user.id, channel.id)
