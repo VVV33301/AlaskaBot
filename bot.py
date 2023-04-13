@@ -7,12 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 import youtube_dl
-from pytube import extract
 from pymorphy2 import MorphAnalyzer
 from re import sub, search
 from googletrans import Translator
 from random import randint
-from os import remove, walk, path, listdir, getcwd
+from os import walk, path, getcwd
 import math
 
 from settings import TOKEN
@@ -24,17 +23,14 @@ calc_list = ['int', 'float', 'sum', 'round', *dir(math)[5:]]
 
 
 def find_ffmpeg() -> path.join:
+    for dirpath, dirname, filename in walk(getcwd()):
+        if 'ffmpeg.exe' in filename:
+            print('ffmpeg.exe found in', dirpath)
+            return path.join(dirpath, 'ffmpeg.exe')
     for dirpath, dirname, filename in walk('/'):
         if 'ffmpeg.exe' in filename:
             print('ffmpeg.exe found in', dirpath)
             return path.join(dirpath, 'ffmpeg.exe')
-
-
-def delete_yt() -> None:
-    for file in listdir(getcwd()):
-        f = file.split('-')
-        if f[0] == 'youtube' and f[1] != 'dQw4w9WgXcQ':
-            remove(file)
 
 
 def simplify_word(word: str) -> str:
@@ -104,7 +100,7 @@ async def check(message: str) -> bool:
             else:
                 word_t = word
         except Exception as e:
-            print('translate_error', e.__traceback__)
+            print('translate_error', e.__class__.__name__)
             word_t = word
         print(morph.normal_forms(word_t), morph.normal_forms(word_r), word_t, word_r, word)
 
@@ -138,29 +134,8 @@ ytdl_format_options = {'format': 'bestaudio/best', 'outtmpl': '%(extractor)s-%(i
                        'restrictfilenames': True, 'noplaylist': True, 'nocheckcertificate': True,
                        'ignoreerrors': False, 'logtostderr': False, 'quiet': True, 'no_warnings': True,
                        'default_search': 'auto', 'source_address': '0.0.0.0'}
-ffmpeg_options = {'options': '-vn'}
+ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
-
-
-class YTDLSource(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, volume=0.5):
-        super().__init__(source, volume)
-        self.data = data
-        self.title = data.get('title')
-        self.url = data.get('url')
-        self.duration = data.get('duration')
-        self.image = data.get("thumbnails")[0]["url"]
-
-    @classmethod
-    async def from_url(cls, url, *, loop=None, stream=False):
-        loop = loop or asyncio.get_event_loop()
-        info = ytdl.extract_info(url, download=not stream)
-        data = await loop.run_in_executor(None, lambda: info)
-        if 'entries' in data:
-            data = data['url'] if stream else data['entries'][0]
-        filename = data['url'] if stream else ytdl.prepare_filename(data)
-        return cls(discord.FFmpegPCMAudio(filename, executable=find_ffmpeg(),
-                                          **ffmpeg_options), data=data), info
 
 
 spam_flag = False
@@ -457,9 +432,9 @@ async def call_to_server(interaction, member: discord.User):
 
 @tree.command(name='play_music', description='Запустить музыку из ютуба')
 @app_commands.guild_only()
-@app_commands.describe(yt_url='Полная ссылка на видео из ютуба',
+@app_commands.describe(url='Полная ссылка на видео из ютуба',
                        channel='Голосовой канал для воспроизведения музыки (по умолчанию тот, на котором вы)')
-async def play_music(interaction, yt_url: str = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+async def play_music(interaction, url: str = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
                      channel: discord.VoiceChannel = None):
     if interaction.guild.voice_client:
         await interaction.response.send_message('Сначала необходимо остановить музыку, играющую сейчас')
@@ -470,28 +445,30 @@ async def play_music(interaction, yt_url: str = 'https://www.youtube.com/watch?v
         except AttributeError:
             await interaction.response.send_message('Вы не указали голосовой канал!')
             return
-    yt_url = f'https://www.youtube.com/watch?v={extract.video_id(yt_url)}'
     await interaction.response.defer()
     try:
-        music, info = await YTDLSource.from_url(yt_url, loop=client.loop)
+        with youtube_dl.YoutubeDL(ytdl_format_options) as ydl:
+            info = ydl.extract_info(url, download=False)
+            iurl = info['formats'][0]['url']
+            source = await discord.FFmpegOpusAudio.from_probe(iurl, **ffmpeg_options, executable=find_ffmpeg())
         text = f'**Воспроизводится:** `{info["title"]}`'
         await channel.connect()
         print('music_play', interaction.guild_id, interaction.user.id, channel.id)
         voice_client = interaction.guild.voice_client
         await interaction.followup.send(content=text)
         if voice_client.is_connected():
-            voice_client.play(music)
+            voice_client.play(source)
         while voice_client.is_playing():
             await asyncio.sleep(1)
         await voice_client.disconnect()
+
     except Exception as e:
         try:
             await interaction.followup.send(content='Ошибка воспроизведения')
         except Exception as ee:
             await interaction.response.send_message(content='Ошибка воспроизведения')
-            print(ee.__traceback__)
-        print('music_error', e.__traceback__)
-    delete_yt()
+            print(ee.__class__.__name__)
+        print('music_error', e.__class__.__name__)
 
 
 @tree.command(name='stop_music', description='Остановить музыку')
@@ -502,7 +479,6 @@ async def stop_music(interaction):
         await voice_client.disconnect()
         await interaction.response.send_message('Музыка остановлена')
         print('stop_music', interaction.guild_id, interaction.user.id)
-        delete_yt()
     else:
         await interaction.response.send_message('Ошибка: Сейчас ничего не воспроизводится')
 
@@ -531,8 +507,14 @@ async def information(interaction, parameter: str):
     elif parameter == 'bot':
         await interaction.response.send_message(
             f'*AlaskaBot*\nСерверов: {len(t := client.guilds)}\nПользователей: {sum([len(i.members) - 1 for i in t])}')
+    elif parameter == 'terms':
+        await interaction.response.send_message(
+            'AlaskaBot собирает информацию (ID и названия серверов, ID и ники пользователей, роли серверов, а также все'
+            ' сообщения) для обработки. ID и роли серверов сохраняются в базе данных для обработки. Все остальные '
+            'данные не сохраняются')
     else:
-        await interaction.response.send_message(f'Сервер "{guild.name}"')
+        await interaction.response.send_message(f'Сервер "{guild.name}"\nИспользуя AlaskaBot, вы соглашаетесь на '
+                                                f'сбор информации о сервере и его участниках')
     print('information', parameter, interaction.guild_id, interaction.user.id)
 
 
