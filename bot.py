@@ -137,7 +137,6 @@ ytdl_format_options = {'format': 'bestaudio/best', 'outtmpl': '%(extractor)s-%(i
 ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
 
-
 spam_flag = False
 ban_words, ban_roots = [], []
 with open('ban_words.json', encoding='utf-8') as words:
@@ -272,6 +271,41 @@ async def bot_help(interaction):
         text.append('*Попробуйте воспользоваться ботом на сервере - больше возможностей!*')
     await interaction.response.send_message('\n'.join(text))
     print('help', interaction.user.id)
+
+
+@tree.command(name='information', description='Вывести информацию о сервере')
+@app_commands.guild_only()
+@app_commands.describe(parameter='тип необходимой информации (server, members, bot и т.д)')
+async def information(interaction, parameter: str):
+    guild = interaction.guild
+    if parameter == 'delete server i am admin':
+        if interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message('Удаление сервера...')
+            s = morph.parse('секунда')[0]
+            for i in range(30):
+                await interaction.channel.send(f'До удаления сервера {30 - i} {s.make_agree_with_number(30 - i).word}')
+                await asyncio.sleep(1)
+            await interaction.guild.delete()
+        else:
+            await interaction.response.send_message('Удаление сервера... ошибка!')
+    elif parameter == 'members':
+        await interaction.response.send_message('\n'.join([f'{n}. {i}' for n, i in
+                                                           enumerate(sorted(map(str, guild.members)), 1)]))
+    elif parameter == 'server':
+        await interaction.response.send_message(
+            f'Сервер "{guild.name}"\nid: {guild.id}\nУчастников: {guild.member_count}')
+    elif parameter == 'bot':
+        await interaction.response.send_message(
+            f'*AlaskaBot*\nСерверов: {len(t := client.guilds)}\nПользователей: {sum([len(i.members) - 1 for i in t])}')
+    elif parameter == 'terms':
+        await interaction.response.send_message(
+            'AlaskaBot собирает информацию (ID и названия серверов, ID и ники пользователей, роли серверов, а также все'
+            ' сообщения) для обработки. ID и роли серверов сохраняются в базе данных для обработки. Все остальные '
+            'данные не сохраняются')
+    else:
+        await interaction.response.send_message(f'Сервер "{guild.name}"\nИспользуя AlaskaBot, вы соглашаетесь на '
+                                                f'сбор информации о сервере и его участниках')
+    print('information', parameter, interaction.guild_id, interaction.user.id)
 
 
 @tree.command(name='change_settings', description='Изменить настройки сервера (пользователь={member}, сервер={server})')
@@ -483,39 +517,10 @@ async def stop_music(interaction):
         await interaction.response.send_message('Ошибка: Сейчас ничего не воспроизводится')
 
 
-@tree.command(name='information', description='Вывести информацию о сервере')
+@tree.command(name='vote', description='Остановить музыку')
 @app_commands.guild_only()
-@app_commands.describe(parameter='тип необходимой информации (server, members, bot и т.д)')
-async def information(interaction, parameter: str):
-    guild = interaction.guild
-    if parameter == 'delete server i am admin':
-        if interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message('Удаление сервера...')
-            s = morph.parse('секунда')[0]
-            for i in range(30):
-                await interaction.channel.send(f'До удаления сервера {30 - i} {s.make_agree_with_number(30 - i).word}')
-                await asyncio.sleep(1)
-            await interaction.guild.delete()
-        else:
-            await interaction.response.send_message('Удаление сервера... ошибка!')
-    elif parameter == 'members':
-        await interaction.response.send_message('\n'.join([f'{n}. {i}' for n, i in
-                                                           enumerate(sorted(map(str, guild.members)), 1)]))
-    elif parameter == 'server':
-        await interaction.response.send_message(
-            f'Сервер "{guild.name}"\nid: {guild.id}\nУчастников: {guild.member_count}')
-    elif parameter == 'bot':
-        await interaction.response.send_message(
-            f'*AlaskaBot*\nСерверов: {len(t := client.guilds)}\nПользователей: {sum([len(i.members) - 1 for i in t])}')
-    elif parameter == 'terms':
-        await interaction.response.send_message(
-            'AlaskaBot собирает информацию (ID и названия серверов, ID и ники пользователей, роли серверов, а также все'
-            ' сообщения) для обработки. ID и роли серверов сохраняются в базе данных для обработки. Все остальные '
-            'данные не сохраняются')
-    else:
-        await interaction.response.send_message(f'Сервер "{guild.name}"\nИспользуя AlaskaBot, вы соглашаетесь на '
-                                                f'сбор информации о сервере и его участниках')
-    print('information', parameter, interaction.guild_id, interaction.user.id)
+async def create_vote(interaction, question: str, answers: str = ':white_check_mark:|:negative_squared_cross_mark:'):
+    pass
 
 
 if __name__ == '__main__':

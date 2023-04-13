@@ -4,7 +4,7 @@
 </h1>
 
 Это Discord бот написанный на языке `Python` при помощи библиотеки `discord.py`.
-Используемые библиотеки: *discord*, *asyncio*, *sqlalchemy*, *youtube_dl*, *pytube*, *pymorphy2*,
+Используемые библиотеки: *discord*, *asyncio*, *sqlalchemy*, *youtube_dl*, *pymorphy2*,
 *googletrans*, *json*, *re*, *random*, *os*, *math*; 
 а также используется программное обеспечение [FFmpeg](https://ffmpeg.org/).
 
