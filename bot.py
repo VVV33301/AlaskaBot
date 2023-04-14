@@ -19,7 +19,7 @@ from translator import translate
 
 morph = MorphAnalyzer()
 translator = Translator()
-calc_list = ['int', 'float', 'sum', 'round', *dir(math)[5:]]
+calc_list = ['int', 'float', 'sum', 'round', *dir(math)[5:], 'True', 'False', 'and', 'or', 'not']
 
 
 def find_ffmpeg() -> path.join:
@@ -382,7 +382,11 @@ async def calculate(interaction, expression: str):
                 '[остальные функции по этой ссылке](<https://docs.python.org/3/library/math.html>)']
         await interaction.followup.send(content='\n'.join(text))
         return
-    for i in sub('[^a-z0-9]', ' ', expression).split():
+    if "'" in expression or '"' in expression:
+        await interaction.followup.send(content='Ошибка!')
+        print('calculate', 'ban', expression)
+        return
+    for i in sub('[^A-Za-zА-Яа-яёЁ<>]', ' ', expression).split():
         if not i.isdigit() and i not in calc_list:
             await interaction.followup.send(content='Ошибка!')
             print('calculate', 'ban', expression)
@@ -495,7 +499,6 @@ async def play_music(interaction, url: str = 'https://www.youtube.com/watch?v=dQ
         while voice_client.is_playing():
             await asyncio.sleep(1)
         await voice_client.disconnect()
-
     except Exception as e:
         try:
             await interaction.followup.send(content='Ошибка воспроизведения')
@@ -520,7 +523,15 @@ async def stop_music(interaction):
 @tree.command(name='vote', description='Остановить музыку')
 @app_commands.guild_only()
 async def create_vote(interaction, question: str, answers: str = ':white_check_mark:|:negative_squared_cross_mark:'):
-    pass
+    if await check(question):
+        await interaction.response.send_message('Я не буду этого делать!')
+        await asyncio.sleep(1.5)
+        await interaction.delete_original_response()
+        return
+    view = discord.ui.View(timeout=None)
+    for ans in answers.split('|'):
+        view.add_item(discord.ui.Button(label=ans))
+    await interaction.response.send_message(question, view=view)
 
 
 if __name__ == '__main__':
