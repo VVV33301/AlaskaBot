@@ -16,6 +16,7 @@ import math
 
 from settings import TOKEN
 from translator import translate
+from buttons import VoteButton, VoteView
 
 morph = MorphAnalyzer()
 translator = Translator()
@@ -275,17 +276,21 @@ async def bot_help(interaction):
 
 @tree.command(name='information', description='Вывести информацию о сервере')
 @app_commands.guild_only()
-@app_commands.describe(parameter='тип необходимой информации (server, members, bot и т.д)')
+@app_commands.describe(parameter='тип необходимой информации (server, members, bot, terms of use и т.д)')
 async def information(interaction, parameter: str):
     guild = interaction.guild
     if parameter == 'delete server i am admin':
         if interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message('Удаление сервера...')
-            s = morph.parse('секунда')[0]
-            for i in range(30):
-                await interaction.channel.send(f'До удаления сервера {30 - i} {s.make_agree_with_number(30 - i).word}')
-                await asyncio.sleep(1)
-            await interaction.guild.delete()
+            try:
+                await interaction.response.send_message('Удаление сервера...')
+                s = morph.parse('секунда')[0]
+                for i in range(30):
+                    await interaction.channel.send(f'До удаления сервера {30 - i} '
+                                                   f'{s.make_agree_with_number(30 - i).word}')
+                    await asyncio.sleep(1)
+                await interaction.guild.delete()
+            except Exception:
+                await interaction.response.send_message('Удаление сервера... ошибка!')
         else:
             await interaction.response.send_message('Удаление сервера... ошибка!')
     elif parameter == 'members':
@@ -297,11 +302,13 @@ async def information(interaction, parameter: str):
     elif parameter == 'bot':
         await interaction.response.send_message(
             f'*AlaskaBot*\nСерверов: {len(t := client.guilds)}\nПользователей: {sum([len(i.members) - 1 for i in t])}')
-    elif parameter == 'terms':
-        await interaction.response.send_message(
+    elif parameter == 'terms of use':
+        await interaction.response.send_message('**Условия использования AlaskaBot**\n'
             'AlaskaBot собирает информацию (ID и названия серверов, ID и ники пользователей, роли серверов, а также все'
             ' сообщения) для обработки. ID и роли серверов сохраняются в базе данных для обработки. Все остальные '
-            'данные не сохраняются')
+            'данные не сохраняются.\nИспользуя AlaskaBot, вы соглашаетесь на сбор информации')
+    elif parameter == 'help':
+        await interaction.response.send_message('Пожалуйста, воспользуйтесь командой /help')
     else:
         await interaction.response.send_message(f'Сервер "{guild.name}"\nИспользуя AlaskaBot, вы соглашаетесь на '
                                                 f'сбор информации о сервере и его участниках')
@@ -316,27 +323,39 @@ async def information(interaction, parameter: str):
                        call_to_server_text='Текст вызова пользователя на сервер',
                        default_role='Роль по умолчанию (указать роль либо её id)',
                        spam_count_max='Максимальное кол-во сообщений в команде generate_spam')
-async def change_settings(interaction, on_bad_word_text: str = None, on_member_join_text: str = None,
-                          on_member_remove_text: str = None, call_to_server_text: str = None,
-                          default_role: discord.Role = None, spam_count_max: int = None):
+async def change_settings(interaction, show_changes: bool = False, on_bad_word_text: str = None,
+                          on_member_join_text: str = None, on_member_remove_text: str = None,
+                          call_to_server_text: str = None, default_role: discord.Role = None,
+                          spam_count_max: int = None):
     if interaction.user.guild_permissions.administrator:
+        changes = {}
         async with session() as sess:
             g = await sess.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
             settings = g.scalars().one()
             if on_bad_word_text:
                 settings.on_bad_word_text = on_bad_word_text
+                changes['on_bad_word_text'] = on_bad_word_text
             if on_member_join_text:
                 settings.on_member_join_text = on_member_join_text
+                changes['on_member_join_text'] = on_member_join_text
             if on_member_remove_text:
                 settings.on_member_remove_text = on_member_remove_text
+                changes['on_member_remove_text'] = on_member_remove_text
             if call_to_server_text:
                 settings.call_to_server_text = call_to_server_text
+                changes['call_to_server_text'] = call_to_server_text
             if default_role:
                 settings.role = default_role.id
+                changes['default_role'] = default_role.id
             if spam_count_max:
                 settings.spam_count_max = spam_count_max
+                changes['spam_count_max'] = spam_count_max
             await sess.commit()
-        await interaction.response.send_message('Настройки бота для сервера изменены!')
+        if show_changes:
+            text = '\n'.join(f'{s} изменен на {r}' for s, r in changes.items())
+            await interaction.response.send_message(f'Настройки бота для сервера изменены:\n{text}')
+        else:
+            await interaction.response.send_message('Настройки бота для сервера изменены!')
         print('change_settings', interaction.guild_id, interaction.user.id)
 
 
@@ -375,18 +394,19 @@ async def calculate(interaction, expression: str):
     if expression == 'help':
         text = ['***Помощь по команде /calculate***', '**Арифметические знаки:**', '> +\tсложение', '> -\tвычитание',
                 '> *\tумножение', '> /\tделение', '> //\tцелочисленное деление', '> **\tстепень',
-                '> %\tостаток от деления', '> ()\tскобки', '> .\tдробная часть',
-                '> ,\tраздделение аргументов в функциях', '**Функции:**',
-                'int() - превращение в целое число', 'float() - превращение в вещественное число',
-                'sum() - сложение списка', 'round() - округление',
+                '> %\tостаток от деления', '> ()\tскобки', '> []\tскобки для списков', '> < >\tбольше или меньше',
+                '> ==\tравно', '> !=\tне равно', '> .\tдробная часть', '> ,\tразделение аргументов в функциях',
+                'and - логическое "и"', 'or - логическое "или"', 'not - логическое "не"', 'True - правда',
+                'False - ложь', '**Функции:**', 'int() - превращение в целое число',
+                'float() - превращение в вещественное число', 'sum() - сложение списка', 'round() - округление',
                 '[остальные функции по этой ссылке](<https://docs.python.org/3/library/math.html>)']
         await interaction.followup.send(content='\n'.join(text))
         return
-    if "'" in expression or '"' in expression:
+    if "'" in expression or '"' in expression or '@' in expression:
         await interaction.followup.send(content='Ошибка!')
         print('calculate', 'ban', expression)
         return
-    for i in sub('[^A-Za-zА-Яа-яёЁ<>]', ' ', expression).split():
+    for i in sub('[^A-Za-zА-Яа-яёЁ]', ' ', expression).split():
         if not i.isdigit() and i not in calc_list:
             await interaction.followup.send(content='Ошибка!')
             print('calculate', 'ban', expression)
@@ -401,7 +421,7 @@ async def calculate(interaction, expression: str):
             text = expression.replace("*", "\*")
             await interaction.followup.send(content=f'{text} = {res}')
         else:
-            raise
+            raise SyntaxError
     except Exception:
         await interaction.followup.send(content='Ошибка!')
         print('calculate', 'error', expression)
@@ -463,7 +483,7 @@ async def call_to_server(interaction, member: discord.User):
                 settings = g.scalars().one()
             await member.send(settings.call_to_server_text.format(member=interaction.user, server=interaction.guild))
         print('call_to_server', interaction.guild_id, interaction.user.id, member.id)
-    except discord.Forbidden:
+    except Exception:
         await interaction.response.send_message(f'Невозможно вызвать {member.mention}')
         print('call_to_server failed', interaction.guild_id, interaction.user.id, member.id)
 
@@ -520,18 +540,40 @@ async def stop_music(interaction):
         await interaction.response.send_message('Ошибка: Сейчас ничего не воспроизводится')
 
 
-@tree.command(name='vote', description='Остановить музыку')
+@tree.command(name='vote', description='Создать опрос')
 @app_commands.guild_only()
-async def create_vote(interaction, question: str, answers: str = ':white_check_mark:|:negative_squared_cross_mark:'):
-    if await check(question):
+@app_commands.describe(question='Вопрос', title='Заголовок (по умолчанию "Опрос")',
+                       answers='Варианты ответа в виде эмодзи (разделитель: "|") (по умолчанию ✅|❎)',
+                       timeout='Время, после которого опрос закрывается (в секундах)',
+                       call_everyone='Вызывать ли всех участников сервера командой @everyone (не рекомендуется)')
+async def create_vote(interaction, question: str, title: str = 'Опрос', answers: str = '✅|❎',
+                      timeout: float = None, call_everyone: bool = False):
+    if await check(question) or await check(title):
         await interaction.response.send_message('Я не буду этого делать!')
         await asyncio.sleep(1.5)
         await interaction.delete_original_response()
         return
-    view = discord.ui.View(timeout=None)
-    for ans in answers.split('|'):
-        view.add_item(discord.ui.Button(label=ans))
-    await interaction.response.send_message(question, view=view)
+    text = discord.Embed(title=title, description=question, colour=discord.Colour.blue())
+    view = VoteView(bot=client)
+    for n, ans in enumerate(answers.replace(' ', '').split('|')):
+        try:
+            btn = VoteButton(emoji=ans, label='0')
+            view.add_item(btn)
+        except Exception:
+            await interaction.response.send_message(content='Ошибка составления опроса')
+            return
+    if call_everyone:
+        try:
+            await interaction.channel.send('@everyone')
+        except Exception:
+            await interaction.channel.send('Не получилось позвать всех при помощи everyone')
+    print('create_vote', interaction.guild_id, interaction.user.id)
+    await interaction.response.send_message(embed=text, view=view)
+    if timeout is not None and timeout > 0:
+        await asyncio.sleep(timeout)
+        for i in filter(lambda x: type(x) == VoteButton, view.children):
+            i.disabled = True
+        await interaction.edit_original_response(view=view)
 
 
 if __name__ == '__main__':
