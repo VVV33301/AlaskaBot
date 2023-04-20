@@ -3,6 +3,8 @@
   <img src="https://user-images.githubusercontent.com/117539159/231544944-244326ad-60f5-42d9-9b4f-db13ffde0158.png" /> 
 </h1>
 
+![Python versions](https://img.shields.io/pypi/pyversions/discord.py)
+
 Это Discord бот написанный на языке `Python` при помощи библиотеки `discord.py`.
 Используемые библиотеки: *discord*, *asyncio*, *sqlalchemy*, *youtube_dl*, *pymorphy2*,
 *googletrans*, *json*, *re*, *random*, *os*, *math*; 
