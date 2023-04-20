@@ -554,7 +554,7 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
         await interaction.delete_original_response()
         return
     text = discord.Embed(title=title, description=question, colour=discord.Colour.blue())
-    view = VoteView(bot=client)
+    view = VoteView(bot=client, timeout=None)
     for n, ans in enumerate(answers.replace(' ', '').split('|')):
         try:
             btn = VoteButton(emoji=ans, label='0')
