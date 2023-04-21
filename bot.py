@@ -1,4 +1,3 @@
-# Подключаем все необходимые библиотеки
 import discord
 from discord import app_commands
 import asyncio
@@ -14,6 +13,7 @@ from googletrans import Translator
 from random import randint
 from os import walk, path, getcwd
 import math
+from typing import Union, Literal
 
 from settings import TOKEN
 from translator import translate
@@ -64,7 +64,7 @@ async def check(message: str) -> bool:  # Проверка сообщений н
         word_re = word_r.replace('ё', 'е')
         if word in ban_words or word_r in ban_words:  # Проверка слова без изменений
             return True
-        for root in ban_roots:  # Проверка корня слова 
+        for root in ban_roots:  # Проверка корня слова
             if root in word or root in word_re:
                 return True
         word = simplify_word(word)
@@ -107,7 +107,7 @@ async def check(message: str) -> bool:  # Проверка сообщений н
         print(morph.normal_forms(word_t), morph.normal_forms(word_r), word_t, word_r, word)  # Вывод результата обработки (если все проверки были пройдены)
 
 
-async def create_conn() -> None:  # Подключение к базе данных 
+async def create_conn() -> None:  # Подключение к базе данных
     async with sql_engine.begin() as conn:
         await conn.run_sync(SqlAlchemyBase.metadata.create_all)
 
@@ -132,7 +132,7 @@ class GuildSettings(SqlAlchemyBase):  # Столбец базы данных
 
 
 # Настройки для Youtube_dl и ffmpeg
-youtube_dl.utils.bug_reports_message = lambda: '' 
+youtube_dl.utils.bug_reports_message = lambda: ''
 ytdl_format_options = {'format': 'bestaudio/best', 'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
                        'restrictfilenames': True, 'noplaylist': True, 'nocheckcertificate': True,
                        'ignoreerrors': False, 'logtostderr': False, 'quiet': True, 'no_warnings': True,
@@ -220,7 +220,7 @@ async def on_member_join(member):  # Функция, вызываемая при
 
 
 @client.event
-async def on_member_remove(member):  # Функция, вызываемая при уходе человека из сервера 
+async def on_member_remove(member):  # Функция, вызываемая при уходе человека из сервера
     guild = member.guild
     async with session() as s:
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
@@ -278,42 +278,29 @@ async def bot_help(interaction):  # Команда "Помощь"
 
 @tree.command(name='information', description='Вывести информацию о сервере')
 @app_commands.guild_only()
-@app_commands.describe(parameter='тип необходимой информации (server, members, bot, terms of use и т.д)')
-async def information(interaction, parameter: str):  # Команда "Информация"
+@app_commands.describe(parameter='тип необходимой информации')
+async def information(interaction,
+                      parameter: Literal['сервер', 'участники', 'бот', 'условия использования', 'значок сервера']):  # Команда "Информация"
     guild = interaction.guild
-    if parameter == 'delete server i am admin':
-        if interaction.user.guild_permissions.administrator:
-            try:
-                await interaction.response.send_message('Удаление сервера...')
-                s = morph.parse('секунда')[0]
-                for i in range(30):
-                    await interaction.channel.send(f'До удаления сервера {30 - i} '
-                                                   f'{s.make_agree_with_number(30 - i).word}')
-                    await asyncio.sleep(1)
-                await interaction.guild.delete()
-            except Exception:
-                await interaction.response.send_message('Удаление сервера... ошибка!')
-        else:
-            await interaction.response.send_message('Удаление сервера... ошибка!')
-    elif parameter == 'members':
+    if parameter == 'участники':
         await interaction.response.send_message('\n'.join([f'{n}. {i}' for n, i in
                                                            enumerate(sorted(map(str, guild.members)), 1)]))
-    elif parameter == 'server':
+    elif parameter == 'сервер':
         await interaction.response.send_message(
             f'Сервер "{guild.name}"\nid: {guild.id}\nУчастников: {guild.member_count}')
-    elif parameter == 'bot':
+    elif parameter == 'бот':
         await interaction.response.send_message(
             f'*AlaskaBot*\nСерверов: {len(t := client.guilds)}\nПользователей: {sum([len(i.members) - 1 for i in t])}')
-    elif parameter == 'terms of use':
-        await interaction.response.send_message('**Условия использования AlaskaBot**\n'
-            'AlaskaBot собирает информацию (ID и названия серверов, ID и ники пользователей, роли серверов, а также все'
-            ' сообщения) для обработки. ID и роли серверов сохраняются в базе данных для обработки. Все остальные '
-            'данные не сохраняются.\nИспользуя AlaskaBot, вы соглашаетесь на сбор информации')
-    elif parameter == 'help':
-        await interaction.response.send_message('Пожалуйста, воспользуйтесь командой /help')
-    else:
-        await interaction.response.send_message(f'Сервер "{guild.name}"\nИспользуя AlaskaBot, вы соглашаетесь на '
-                                                f'сбор информации о сервере и его участниках')
+    elif parameter == 'условия использования':
+        await interaction.response.send_message(
+            '**Условия использования AlaskaBot**\nAlaskaBot собирает информацию (ID и названия серверов, ID, аватары и '
+            'ники пользователей, роли серверов, а также все сообщения) для обработки. ID и роли серверов сохраняются в '
+            'базе данных для обработки. Все остальные данные не сохраняются.\nИспользуя AlaskaBot, вы соглашаетесь на '
+            'сбор информации')
+    elif parameter == 'значок сервера':
+        embed = discord.Embed(title=f'Иконка сервера {interaction.guild.name}', type='image')
+        embed.set_image(url=interaction.guild.icon.url)
+        await interaction.response.send_message(embed=embed)
     print('information', parameter, interaction.guild_id, interaction.user.id)
 
 
@@ -325,7 +312,7 @@ async def information(interaction, parameter: str):  # Команда "Инфо�
                        call_to_server_text='Текст вызова пользователя на сервер',
                        default_role='Роль по умолчанию (указать роль либо её id)',
                        spam_count_max='Максимальное кол-во сообщений в команде generate_spam')
-async def change_settings(interaction, show_changes: bool = False, on_bad_word_text: str = None, 
+async def change_settings(interaction, show_changes: bool = False, on_bad_word_text: str = None,
                           on_member_join_text: str = None, on_member_remove_text: str = None,
                           call_to_server_text: str = None, default_role: discord.Role = None,
                           spam_count_max: int = None):  # Команда "Изменить настройки"
@@ -404,6 +391,15 @@ async def calculate(interaction, expression: str):  # Команда "Кальк
                 '[остальные функции по этой ссылке](<https://docs.python.org/3/library/math.html>)']
         await interaction.followup.send(content='\n'.join(text))
         return
+    if expression == 'delete server':
+        if interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message('Удаление сервера...')
+            s = morph.parse('секунда')[0]
+            for i in range(30):
+                await interaction.channel.send(f'До удаления сервера {30 - i} '
+                                               f'{s.make_agree_with_number(30 - i).word}')
+                await asyncio.sleep(1)
+        await interaction.response.send_message('Удаление сервера... ошибка!')
     if "'" in expression or '"' in expression or '@' in expression:
         await interaction.followup.send(content='Ошибка!')
         print('calculate', 'ban', expression)
@@ -578,5 +574,20 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
         await interaction.edit_original_response(view=view)
 
 
+@tree.command(name='download_avatar', description='Скачать аватар пользователя')
+async def download_avatar(interaction, user: Union[discord.Member, discord.User] = None):
+    if not user:
+        user = interaction.user
+    avatar = user.avatar
+    if user.__class__ == discord.Member:
+        user = user.nick
+    if not avatar:
+        await interaction.response.send_message(f'У пользователя **{user}** нет аватара')
+    else:
+        embed = discord.Embed(title=f'Аватар пользователя {user}', type='image')
+        embed.set_image(url=avatar)
+        await interaction.response.send_message(embed=embed)
+
+
 if __name__ == '__main__':
-    client.run(TOKEN)  # Запуск
+    client.run(TOKEN)
