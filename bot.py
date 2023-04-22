@@ -575,11 +575,11 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
 
 
 @tree.command(name='download_avatar', description='Скачать аватар пользователя')
-async def download_avatar(interaction, user: Union[discord.Member, discord.User] = None):
+async def download_avatar(interaction, user: Union[discord.Member, discord.User] = None):  # Команда "Скачать аватар"
     if not user:
         user = interaction.user
     avatar = user.avatar
-    if user.__class__ == discord.Member:
+    if user.__class__ == discord.Member and user.nick:
         user = user.nick
     if not avatar:
         await interaction.response.send_message(f'У пользователя **{user}** нет аватара')
@@ -589,5 +589,5 @@ async def download_avatar(interaction, user: Union[discord.Member, discord.User]
         await interaction.response.send_message(embed=embed)
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # Запуск
     client.run(TOKEN)
