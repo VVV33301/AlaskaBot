@@ -14,17 +14,20 @@ from random import randint
 from os import walk, path, getcwd
 import math
 from typing import Union, Literal
+# Импорт библиотек
 
 from settings import TOKEN
 from translator import translate
 from buttons import VoteButton, VoteView
+# Импорт дополнительных файлов бота
 
 morph = MorphAnalyzer()  # Класс для анализа слов
 translator = Translator()  # Переводчик
 calc_list = ['int', 'float', 'sum', 'round', *dir(math)[5:], 'True', 'False', 'and', 'or', 'not']  # Список разрешенных функций для калькулятора
 
 
-def find_ffmpeg() -> path.join:  # Найти приложение ffmpeg
+def find_ffmpeg() -> str:
+    """Найти приложение ffmpeg"""
     for dirpath, dirname, filename in walk(getcwd()):  # Поиск в локальном окружении
         if 'ffmpeg.exe' in filename:
             print('ffmpeg.exe found in', dirpath)
@@ -35,7 +38,8 @@ def find_ffmpeg() -> path.join:  # Найти приложение ffmpeg
             return path.join(dirpath, 'ffmpeg.exe')
 
 
-def simplify_word(word: str) -> str:  # Ликвидация повторяющихся букв из слова
+def simplify_word(word: str) -> str:
+    """Ликвидация повторяющихся букв из слова"""
     last_letter = ''
     result = ''
     for letter in word:
@@ -45,7 +49,8 @@ def simplify_word(word: str) -> str:  # Ликвидация повторяющ�
     return result
 
 
-async def ban_message(message: discord.Message) -> None:  # Забанить сообщение и удалить его
+async def ban_message(message: discord.Message) -> None:
+    """Забанить сообщение и удалить его"""
     try:
         await message.delete()
     except Exception as e:
@@ -57,7 +62,8 @@ async def ban_message(message: discord.Message) -> None:  # Забанить с�
     print('deleted', message.guild.id, message.author.id)
 
 
-async def check(message: str) -> bool:  # Проверка сообщений на наличие нецензурных слов
+async def check(message: str) -> bool:
+    """Проверка сообщений на наличие нецензурных слов"""
     msg_words = [word.lower() for word in sub('[^A-Za-zА-Яа-яёЁ]+', ' ', message).split()]
     for word in msg_words:
         word_r = translate(word)
@@ -107,7 +113,8 @@ async def check(message: str) -> bool:  # Проверка сообщений н
         print(morph.normal_forms(word_t), morph.normal_forms(word_r), word_t, word_r, word)  # Вывод результата обработки (если все проверки были пройдены)
 
 
-async def create_conn() -> None:  # Подключение к базе данных
+async def create_conn() -> None:
+    """Подключение к базе данных"""
     async with sql_engine.begin() as conn:
         await conn.run_sync(SqlAlchemyBase.metadata.create_all)
 
@@ -118,7 +125,8 @@ asyncio.run(create_conn())  # Подключение движка
 session = async_sessionmaker(bind=sql_engine)  # Генератор сессий
 
 
-class GuildSettings(SqlAlchemyBase):  # Столбец базы данных
+class GuildSettings(SqlAlchemyBase):
+    """Столбец базы данных"""
     __tablename__ = 'settings'
 
     guild_id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
@@ -160,7 +168,8 @@ tree = app_commands.CommandTree(client)  # Командное дерево
 
 
 @client.event
-async def on_ready():  # Функция, вызываемая при запуске бота
+async def on_ready():
+    """Функция, вызываемая при запуске бота"""
     await tree.sync()
     print(f'Logged in as {client.user} (ID: {client.user.id})')
     print('-----\nGuilds:')
@@ -188,7 +197,8 @@ async def on_ready():  # Функция, вызываемая при запус�
 
 
 @client.event
-async def on_guild_join(guild):  # Функция, вызываемая при присоединении бота к новому серверу
+async def on_guild_join(guild):
+    """Функция, вызываемая при присоединении бота к новому серверу"""
     if guild.system_channel is not None:
         await guild.system_channel.send('Привет! Меня зовут AlaskaBot и я ваш новый бот! Попробуйте команду */help*')
         ng = GuildSettings(guild_id=guild.id,
@@ -206,7 +216,8 @@ async def on_guild_join(guild):  # Функция, вызываемая при �
 
 
 @client.event
-async def on_member_join(member):  # Функция, вызываемая при присоединении нового человека к серверу
+async def on_member_join(member):
+    """Функция, вызываемая при присоединении нового человека к серверу"""
     guild = member.guild
     async with session() as s:
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
@@ -220,7 +231,8 @@ async def on_member_join(member):  # Функция, вызываемая при
 
 
 @client.event
-async def on_member_remove(member):  # Функция, вызываемая при уходе человека из сервера
+async def on_member_remove(member):
+    """Функция, вызываемая при уходе человека из сервера"""
     guild = member.guild
     async with session() as s:
         g = await s.execute(select(GuildSettings).where(GuildSettings.guild_id == member.guild.id))
@@ -232,7 +244,8 @@ async def on_member_remove(member):  # Функция, вызываемая пр
 
 
 @client.event
-async def on_message(message):  # Функция, вызываемая при отправке сообщения
+async def on_message(message):
+    """Функция, вызываемая при отправке сообщения"""
     if not message.guild or message.author.id == client.user.id:
         return
     async with session() as s:
@@ -244,7 +257,8 @@ async def on_message(message):  # Функция, вызываемая при о
 
 
 @client.event
-async def on_raw_message_edit(payload):  # Функция, вызываемая при редактировании сообщения
+async def on_raw_message_edit(payload):
+    """Функция, вызываемая при редактировании сообщения"""
     try:
         message = await client.get_channel(payload.channel_id).fetch_message(payload.message_id)
         if not message.guild or message.author.id == client.user.id:
@@ -260,7 +274,8 @@ async def on_raw_message_edit(payload):  # Функция, вызываемая 
 
 
 @tree.command(name='help', description='Показать описания команд')
-async def bot_help(interaction):  # Команда "Помощь"
+async def bot_help(interaction):
+    """Команда Помощь"""
     text = ['**AlaskaBot**', '*Это бот, имеющий набор ничем не связанных команд, но необходимых каждому пользователю*',
             'Функционал - *модерация*, *написание спама*, *отправка личных сообщений*, *воспроизведение музыки* и т.д.',
             'Описание команд:']
@@ -280,7 +295,8 @@ async def bot_help(interaction):  # Команда "Помощь"
 @app_commands.guild_only()
 @app_commands.describe(parameter='тип необходимой информации')
 async def information(interaction,
-                      parameter: Literal['сервер', 'участники', 'бот', 'условия использования', 'значок сервера']):  # Команда "Информация"
+                      parameter: Literal['сервер', 'участники', 'бот', 'условия использования', 'значок сервера']):
+    """Команда Информация"""
     guild = interaction.guild
     if parameter == 'участники':
         await interaction.response.send_message('\n'.join([f'{n}. {i}' for n, i in
@@ -298,7 +314,7 @@ async def information(interaction,
             'базе данных для обработки. Все остальные данные не сохраняются.\nИспользуя AlaskaBot, вы соглашаетесь на '
             'сбор информации')
     elif parameter == 'значок сервера':
-        embed = discord.Embed(title=f'Иконка сервера {interaction.guild.name}', type='image')
+        embed = discord.Embed(title=f'Значок сервера *{interaction.guild.name}*', type='image')
         embed.set_image(url=interaction.guild.icon.url)
         await interaction.response.send_message(embed=embed)
     print('information', parameter, interaction.guild_id, interaction.user.id)
@@ -315,7 +331,8 @@ async def information(interaction,
 async def change_settings(interaction, show_changes: bool = False, on_bad_word_text: str = None,
                           on_member_join_text: str = None, on_member_remove_text: str = None,
                           call_to_server_text: str = None, default_role: discord.Role = None,
-                          spam_count_max: int = None):  # Команда "Изменить настройки"
+                          spam_count_max: int = None):
+    """Команда Изменить настройки"""
     if interaction.user.guild_permissions.administrator:
         changes = {}
         async with session() as sess:
@@ -350,7 +367,8 @@ async def change_settings(interaction, show_changes: bool = False, on_bad_word_t
 
 @tree.command(name='moderation', description='Включить/отключить удаление нежелательных сообщений')
 @app_commands.guild_only()
-async def moderation(interaction, value: bool):  # Команда "Включить модерацию"
+async def moderation(interaction, value: bool):
+    """Команда Включить модерацию"""
     if interaction.user.guild_permissions.administrator:
         async with session() as sess:
             g = await sess.execute(select(GuildSettings).where(GuildSettings.guild_id == interaction.guild.id))
@@ -365,7 +383,8 @@ async def moderation(interaction, value: bool):  # Команда "Включи�
 
 @tree.command(name='random_integer', description='Вывести случайное число (по умолчанию от 0 до 100)')
 @app_commands.describe(minimal='Минимальное число', maximal='Максимальное число')
-async def random_integer(interaction, minimal: int = 0, maximal: int = 100):  # Команда "Рандомное число"
+async def random_integer(interaction, minimal: int = 0, maximal: int = 100):
+    """Команда Рандомное число"""
     if minimal <= maximal:
         await interaction.response.send_message(randint(minimal, maximal))
     else:
@@ -378,7 +397,8 @@ async def random_integer(interaction, minimal: int = 0, maximal: int = 100):  # 
 
 @tree.command(name='calculate', description='Посчитать математические выражения')
 @app_commands.describe(expression='Выражение (показать все операции - help)')
-async def calculate(interaction, expression: str):  # Команда "Калькулятор"
+async def calculate(interaction, expression: str):
+    """Команда Калькулятор"""
     await interaction.response.defer()
     if expression == 'help':
         text = ['***Помощь по команде /calculate***', '**Арифметические знаки:**', '> +\tсложение', '> -\tвычитание',
@@ -433,7 +453,8 @@ async def calculate(interaction, expression: str):  # Команда "Кальк
 @tree.command(name='generate_spam', description='Начать спам')
 @app_commands.guild_only()
 @app_commands.describe(count='Количество сообщений', text='Текст сообщений')
-async def generate_spam(interaction, text: str, count: int = 3):  # Команда "Начать спам"
+async def generate_spam(interaction, text: str, count: int = 3):
+    """Команда Начать спам"""
     if await check(text):
         await interaction.response.send_message('Я не буду этого делать!')
         await asyncio.sleep(1.5)
@@ -458,7 +479,8 @@ async def generate_spam(interaction, text: str, count: int = 3):  # Команд
 
 @tree.command(name='stop_spam', description='Остановить спам')
 @app_commands.guild_only()
-async def stop_spam(interaction):  # Команда "Остановить спам"
+async def stop_spam(interaction):
+    """Команда Остановить спам"""
     global spam_flag
     spam_flag = False
     await interaction.response.send_message('Прекращение спама')
@@ -468,7 +490,8 @@ async def stop_spam(interaction):  # Команда "Остановить спа
 @tree.command(name='call_to_server', description='Позвать пользователя')
 @app_commands.guild_only()
 @app_commands.describe(member='Пользователь')
-async def call_to_server(interaction, member: discord.User):  # Команда "Позвать человека"
+async def call_to_server(interaction, member: discord.User):
+    """Команда Позвать человека"""
     try:
         await interaction.response.send_message(f'Вызов {member.mention}')
         if member.id == client.user.id:
@@ -491,7 +514,8 @@ async def call_to_server(interaction, member: discord.User):  # Команда "
 @app_commands.describe(url='Полная ссылка на видео из ютуба',
                        channel='Голосовой канал для воспроизведения музыки (по умолчанию тот, на котором вы)')
 async def play_music(interaction, url: str = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-                     channel: discord.VoiceChannel = None):  # Команда "Включить музыку"
+                     channel: discord.VoiceChannel = None):
+    """Команда Включить музыку"""
     if interaction.guild.voice_client:
         await interaction.response.send_message('Сначала необходимо остановить музыку, играющую сейчас')
         return
@@ -528,7 +552,8 @@ async def play_music(interaction, url: str = 'https://www.youtube.com/watch?v=dQ
 
 @tree.command(name='stop_music', description='Остановить музыку')
 @app_commands.guild_only()
-async def stop_music(interaction):  # Команда "Остановить музыку"
+async def stop_music(interaction):
+    """Команда Остановить музыку"""
     voice_client = interaction.guild.voice_client
     if voice_client.is_connected():
         await voice_client.disconnect()
@@ -545,7 +570,8 @@ async def stop_music(interaction):  # Команда "Остановить му�
                        timeout='Время, после которого опрос закрывается (в секундах)',
                        call_everyone='Вызывать ли всех участников сервера командой @everyone (не рекомендуется)')
 async def create_vote(interaction, question: str, title: str = 'Опрос', answers: str = '✅|❎',
-                      timeout: float = None, call_everyone: bool = False):  # Команда "Создать опрос"
+                      timeout: float = None, call_everyone: bool = False):
+    """Команда Создать опрос"""
     if await check(question) or await check(title):
         await interaction.response.send_message('Я не буду этого делать!')
         await asyncio.sleep(1.5)
@@ -575,7 +601,8 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
 
 
 @tree.command(name='download_avatar', description='Скачать аватар пользователя')
-async def download_avatar(interaction, user: Union[discord.Member, discord.User] = None):  # Команда "Скачать аватар"
+async def download_avatar(interaction, user: Union[discord.Member, discord.User] = None):
+    """Команда Скачать аватар"""
     if not user:
         user = interaction.user
     avatar = user.avatar
@@ -589,5 +616,5 @@ async def download_avatar(interaction, user: Union[discord.Member, discord.User]
         await interaction.response.send_message(embed=embed)
 
 
-if __name__ == '__main__':  # Запуск
+if __name__ == '__main__':  # Запуск бота
     client.run(TOKEN)
