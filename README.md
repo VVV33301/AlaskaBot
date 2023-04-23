@@ -6,8 +6,8 @@
 ![Python versions](https://img.shields.io/pypi/pyversions/discord.py)
 
 Это Discord бот написанный на языке `Python` при помощи библиотеки `discord.py`.
-Используемые библиотеки: *discord*, *asyncio*, *sqlalchemy*, *youtube_dl*, *pymorphy2*,
-*googletrans*, *json*, *re*, *random*, *os*, *math*; 
+Используемые библиотеки: *discord.py*, *asyncio*, *sqlalchemy*, *youtube_dl*, *pymorphy2*,
+*googletrans*, *json*, *re*, *random*, *os*, *math*, *typing*; 
 а также используется программное обеспечение [FFmpeg](https://ffmpeg.org/).
 
 Все библиотеки для установки [здесь](requirements.txt)

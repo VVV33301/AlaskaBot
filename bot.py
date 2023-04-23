@@ -1,5 +1,5 @@
-import discord
-from discord import app_commands
+import discord.py
+from discord.py import app_commands
 import asyncio
 import json
 import sqlalchemy
