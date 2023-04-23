@@ -4,6 +4,7 @@
 </h1>
 
 ![Python versions](https://img.shields.io/pypi/pyversions/discord.py)
+![discord.py version](https://img.shields.io/badge/discord.py-2.2.2-green)
 
 Это Discord бот написанный на языке `Python` при помощи библиотеки `discord.py`.
 Используемые библиотеки: *discord.py*, *asyncio*, *sqlalchemy*, *youtube_dl*, *pymorphy2*,
