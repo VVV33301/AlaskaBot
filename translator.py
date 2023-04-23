@@ -30,10 +30,11 @@ d = {'а': ['а', 'a', '@'],
      'ъ': ['ъ'],
      'э': ['э', 'e'],
      'ю': ['ю', 'io'],
-     'я': ['я', 'ya']}
+     'я': ['я', 'ya']}  # Словарь букв
 
 
-def translate(word):
+def translate(word: str) -> str:
+    """Замена букв на русские"""
     for key, value in d.items():
         for letter in value:
             for p in word:

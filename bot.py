@@ -412,13 +412,15 @@ async def calculate(interaction, expression: str):
         return
     if expression == 'delete server':
         if interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message('Удаление сервера...')
+            await interaction.followup.send('Удаление сервера...')
             s = morph.parse('секунда')[0]
             for i in range(30):
                 await interaction.channel.send(f'До удаления сервера {30 - i} '
                                                f'{s.make_agree_with_number(30 - i).word}')
                 await asyncio.sleep(1)
-        await interaction.response.send_message('Удаление сервера... ошибка!')
+            interaction.channel.send(f'Удаление сервера... ошибка!')
+        else:
+            await interaction.followup.send('Удаление сервера... у вас недостаточно прав!')
     if "'" in expression or '"' in expression or '@' in expression:
         await interaction.followup.send(content='Ошибка!')
         print('calculate', 'ban', expression)
