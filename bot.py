@@ -582,7 +582,7 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
     view = VoteView(timeout=None)
     for n, ans in enumerate(answers.replace(' ', '').split('|')):
         try:
-            btn = VoteButton(emoji=ans, label='0')
+            btn = VoteButton(emoji=ans, label='0', custom_id=f'{view.id}:{n}')
             view.add_item(btn)
         except Exception:
             await interaction.response.send_message(content='Ошибка составления опроса')
@@ -592,6 +592,7 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
             await interaction.channel.send('@everyone')
         except Exception:
             await interaction.channel.send('Не получилось позвать всех при помощи everyone')
+    client.add_view(view)
     print('create_vote', interaction.guild_id, interaction.user.id)
     await interaction.response.send_message(embed=text, view=view)
     if timeout is not None and timeout > 0:
@@ -602,6 +603,7 @@ async def create_vote(interaction, question: str, title: str = 'Опрос', ans
 
 
 @tree.command(name='download_avatar', description='Скачать аватар пользователя')
+@app_commands.describe(user='Пользователь, аватар которого нужен')
 async def download_avatar(interaction, user: Union[discord.Member, discord.User] = None):
     """Команда Скачать аватар"""
     if not user:

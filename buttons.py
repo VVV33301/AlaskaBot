@@ -1,4 +1,5 @@
 import discord
+import traceback
 
 class VoteView(discord.ui.View):
     """Переделка discord.ui.View"""
@@ -21,4 +22,4 @@ class VoteButton(discord.ui.Button):
                 self.view.users_list.append(interaction.user.id)
             await interaction.response.edit_message(view=self.view)
         except Exception:
-            pass
+            traceback.print_exc()
