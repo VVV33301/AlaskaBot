@@ -11,12 +11,13 @@ from pymorphy2 import MorphAnalyzer
 from re import sub, search
 from googletrans import Translator
 from random import randint
-from os import walk, path, getcwd
+from os import walk, path, getcwd, remove
 import math
 from typing import Union, Literal
 # Импорт библиотек
 
 from settings import TOKEN
+from ffc_model import classify_image
 from translator import translate
 from buttons import VoteButton, VoteView
 # Импорт дополнительных файлов бота
@@ -286,6 +287,7 @@ async def bot_help(interaction):
             if not c.guild_only:
                 text.append(f'> **{c.name}** - *{c.description}*')
         text.append('*Попробуйте воспользоваться ботом на сервере - больше возможностей!*')
+    text.append('В бота встроена нейросеть FakeFaceChecker, которая способна отличить реальное лицо от фейкового')
     await interaction.response.send_message('\n'.join(text))
     print('help', interaction.user.id)
 
@@ -617,6 +619,23 @@ async def download_avatar(interaction, user: Union[discord.Member, discord.User]
         embed = discord.Embed(title=f'Аватар пользователя {user}', type='image')
         embed.set_image(url=avatar)
         await interaction.response.send_message(embed=embed)
+
+
+@tree.command(name='check_photo', description='Запустить FakeFaceChecker для определения реальности фотографии')
+@app_commands.describe(photo='Фотография с лицом человека')
+async def ai_photo(interaction: discord.Interaction, photo: discord.Attachment):
+    """Команда Проверить фото на подделку"""
+    await interaction.response.defer()
+    if photo.content_type.startswith('image'):
+        photo_path = f'FFC_downloads/{photo.id}'
+        await photo.save(photo_path)
+        embed = discord.Embed(title=classify_image(photo_path), type='image')
+        embed.set_image(url=photo.url)
+        await interaction.followup.send(embed=embed)
+        remove(photo_path)
+    else:
+        await interaction.followup.send('Недопустимый тип данных')
+        print('check photo invalid -', photo.content_type)
 
 
 if __name__ == '__main__':  # Запуск бота
